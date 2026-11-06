@@ -1,0 +1,66 @@
+{
+  "label": "depois-dev-turbopack-r2",
+  "baseUrl": "http://localhost:3200",
+  "at": "2026-11-06T02:26:41.262Z",
+  "first": [
+    {
+      "path": "/admin",
+      "ms": 2896,
+      "ttfb": 2649,
+      "jsKB": 1737,
+      "sessionCalls": 0
+    },
+    {
+      "path": "/admin/faturamento",
+      "ms": 966,
+      "ttfb": 817,
+      "jsKB": 3264,
+      "sessionCalls": 0
+    },
+    {
+      "path": "/admin/agendamentos",
+      "ms": 910,
+      "ttfb": 721,
+      "jsKB": 1766,
+      "sessionCalls": 0
+    }
+  ],
+  "warm": {
+    "admin→Faturamento": {
+      "medianMs": 217,
+      "samples": [
+        213,
+        222,
+        204,
+        217,
+        228
+      ]
+    },
+    "admin→Agendamentos": {
+      "medianMs": 218,
+      "samples": [
+        218,
+        220,
+        203,
+        204,
+        219
+      ]
+    },
+    "admin→Hoje": {
+      "medianMs": 212,
+      "samples": [
+        314,
+        210,
+        206,
+        212,
+        219
+      ]
+    }
+  },
+  "extras": {
+    "sessionCallsPerRound": 0,
+    "clientAgendarMs": 854,
+    "clientToHorarioPageMs": 878,
+    "clientChangeDaySlotsMs": 128
+  }
+}

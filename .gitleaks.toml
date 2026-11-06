@@ -1,0 +1,17 @@
+# Detecção de segredos (gitleaks). Usa o conjunto padrão de regras e só ignora o que é comprovadamente de teste.
+# Diferente do modelo genérico da skill, NÃO ignora qualquer texto com "test"/"example": isso esconderia segredos reais.
+title = "Agendamento Manicure — gitleaks"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Chaves fixas usadas só pelos testes automatizados (nunca valem em produção)"
+paths = [
+  '''vitest\.config\.ts''',
+  '''vitest\.pg\.config\.ts''',
+  '''playwright\.config\.ts''',
+  '''tests-pg/pg-env\.ts''',
+  '''package-lock\.json''',
+  '''\.skills/''',
+]

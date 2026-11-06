@@ -1,0 +1,47 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+.next-*/
+out/
+
+# production
+build/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# database
+prisma/dev.db
+prisma/dev.db-journal
+prisma/test.db
+prisma/test.db-journal
+*.db
+*.db-journal
+
+# logs
+npm-debug.log*
+*.log
+
+# misc
+.DS_Store
+*.tsbuildinfo
+next-env.d.ts
+coverage/
+
+# PostgreSQL de teste / backups locais
+.prisma-pg-client/
+prisma/postgres/schema.test.prisma
+backups/
+e2e/screenshots/
+test-results/
+playwright-report/
+
+# === Added by security-skill ===
+.env.*
+*.key
+*.pem
+secrets/

@@ -1,0 +1,5 @@
+export DATABASE_URL="file:./perf.db"
+export NEXTAUTH_URL="http://localhost:3200"
+export NEXTAUTH_SECRET="perf-only-secret-not-for-prod-0123456789abc"
+export TOKEN_ENCRYPTION_KEY="hTIcu8KsnQFn//xNql8gZiD/e6BWkekeGHF696BsgCE="
+export GOOGLE_CLIENT_ID="" GOOGLE_CLIENT_SECRET="" GOOGLE_REDIRECT_URI=""

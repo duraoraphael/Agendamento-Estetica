@@ -1,0 +1,66 @@
+{
+  "label": "depois-dev",
+  "baseUrl": "http://localhost:3200",
+  "at": "2026-11-06T02:24:03.186Z",
+  "first": [
+    {
+      "path": "/admin",
+      "ms": 7936,
+      "ttfb": 7819,
+      "jsKB": 8166,
+      "sessionCalls": 0
+    },
+    {
+      "path": "/admin/faturamento",
+      "ms": 3133,
+      "ttfb": 3070,
+      "jsKB": 13025,
+      "sessionCalls": 0
+    },
+    {
+      "path": "/admin/agendamentos",
+      "ms": 3175,
+      "ttfb": 3091,
+      "jsKB": 8183,
+      "sessionCalls": 0
+    }
+  ],
+  "warm": {
+    "admin→Faturamento": {
+      "medianMs": 109,
+      "samples": [
+        112,
+        108,
+        109,
+        218,
+        103
+      ]
+    },
+    "admin→Agendamentos": {
+      "medianMs": 218,
+      "samples": [
+        218,
+        219,
+        202,
+        220,
+        102
+      ]
+    },
+    "admin→Hoje": {
+      "medianMs": 219,
+      "samples": [
+        219,
+        219,
+        206,
+        222,
+        218
+      ]
+    }
+  },
+  "extras": {
+    "sessionCallsPerRound": 0,
+    "clientAgendarMs": 2133,
+    "clientToHorarioPageMs": 8927,
+    "clientChangeDaySlotsMs": 65
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "name": "agendamento-manicure",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --turbopack",
+    "dev:webpack": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint .",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:generate": "prisma generate",
+    "db:seed": "tsx prisma/seed.ts",
+    "db:studio": "prisma studio",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:check-overlaps": "tsx scripts/check-overlaps.ts",
+    "test:pg": "node scripts/make-pg-schema.mjs --test && vitest run --config vitest.pg.config.ts",
+    "db:pg:schema": "node scripts/make-pg-schema.mjs",
+    "db:pg:generate": "node scripts/make-pg-schema.mjs && prisma generate --schema prisma/postgres/schema.prisma",
+    "db:pg:deploy": "prisma migrate deploy --schema prisma/postgres/schema.prisma",
+    "db:backup": "tsx scripts/backup.ts",
+    "db:restore": "tsx scripts/restore.ts",
+    "db:migrate-to-pg": "tsx scripts/migrate-sqlite-to-postgres.ts",
+    "db:rehearse-pg": "tsx scripts/rehearse-pg-migration.ts",
+    "test:e2e": "playwright test"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
+  "dependencies": {
+    "@prisma/client": "5.22.0",
+    "bcryptjs": "2.4.3",
+    "date-fns": "3.6.0",
+    "date-fns-tz": "3.2.0",
+    "googleapis": "189.0.0",
+    "next": "15.5.29",
+    "next-auth": "4.24.15",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "recharts": "2.13.3",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "3.3.1",
+    "@playwright/test": "1.64.1",
+    "@types/bcryptjs": "2.4.6",
+    "@types/node": "20.17.6",
+    "@types/react": "18.3.12",
+    "@types/react-dom": "18.3.1",
+    "@typescript-eslint/eslint-plugin": "8.72.1",
+    "@typescript-eslint/parser": "8.72.1",
+    "autoprefixer": "10.4.20",
+    "embedded-postgres": "17.5.0-beta.15",
+    "eslint": "9.39.1",
+    "eslint-config-next": "15.5.29",
+    "postcss": "8.5.32",
+    "prisma": "5.22.0",
+    "tailwindcss": "3.4.14",
+    "tsx": "4.23.15",
+    "typescript": "5.6.3",
+    "vitest": "2.1.9"
+  },
+  "allowScripts": {
+    "@prisma/client@5.22.0": true,
+    "@prisma/engines@5.22.0": true,
+    "esbuild@0.23.1": true,
+    "esbuild@0.21.5": true,
+    "prisma@5.22.0": true
+  },
+  "overrides": {
+    "postcss": "$postcss"
+  }
+}

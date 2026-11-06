@@ -1,0 +1,66 @@
+{
+  "label": "antes-dev",
+  "baseUrl": "http://localhost:3200",
+  "at": "2026-11-06T01:52:29.436Z",
+  "first": [
+    {
+      "path": "/admin",
+      "ms": 10147,
+      "ttfb": 10015,
+      "jsKB": 8142,
+      "sessionCalls": 1
+    },
+    {
+      "path": "/admin/faturamento",
+      "ms": 4082,
+      "ttfb": 4008,
+      "jsKB": 12854,
+      "sessionCalls": 1
+    },
+    {
+      "path": "/admin/agendamentos",
+      "ms": 3412,
+      "ttfb": 3333,
+      "jsKB": 8199,
+      "sessionCalls": 1
+    }
+  ],
+  "warm": {
+    "admin→Faturamento": {
+      "medianMs": 108,
+      "samples": [
+        101,
+        99,
+        108,
+        108,
+        110
+      ]
+    },
+    "admin→Agendamentos": {
+      "medianMs": 206,
+      "samples": [
+        109,
+        213,
+        110,
+        206,
+        218
+      ]
+    },
+    "admin→Hoje": {
+      "medianMs": 203,
+      "samples": [
+        209,
+        203,
+        219,
+        201,
+        201
+      ]
+    }
+  },
+  "extras": {
+    "sessionCallsPerRound": 0,
+    "clientAgendarMs": 3515,
+    "clientToHorarioPageMs": 9916,
+    "clientChangeDaySlotsMs": 63
+  }
+}

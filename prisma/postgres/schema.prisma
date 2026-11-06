@@ -1,0 +1,167 @@
+// ARQUIVO GERADO por scripts/make-pg-schema.mjs a partir de prisma/schema.prisma. NÃO EDITE.
+// A restrição de exclusão (sem sobreposição de horários) está na migração SQL desta pasta.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// SQLite não suporta enums nativos no Prisma: os valores abaixo são
+// validados/tipados em TypeScript (veja src/lib/types.ts e validation.ts).
+// Role: "CLIENTE" | "ADMIN"
+// AppointmentStatus: "CONFIRMADA" | "CONCLUIDA" | "CANCELADA" | "FALTA"
+// GoogleSyncStatus: "NAO_CONECTADO" | "PENDENTE" | "SINCRONIZADO" | "ERRO"
+
+model User {
+  id                  String   @id @default(cuid())
+  name                String
+  email               String   @unique
+  phone               String
+  passwordHash        String
+  role                String   @default("CLIENTE")
+  // Usado apenas pelo perfil ADMIN para saber quais agendamentos ainda não
+  // foram "vistos" no painel (notificação de novo agendamento).
+  notificationsSeenAt DateTime @default(now())
+  createdAt           DateTime @default(now())
+
+  appointments        Appointment[]
+  googleCalendarAccount GoogleCalendarAccount?
+
+  @@index([role])
+}
+
+model Service {
+  id              String   @id @default(cuid())
+  name            String
+  priceCents      Int
+  durationMinutes Int
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  appointments    Appointment[]
+}
+
+// Expediente semanal. No máximo um registro por dia da semana (0=domingo .. 6=sábado).
+model BusinessHours {
+  id         String  @id @default(cuid())
+  dayOfWeek  Int     @unique
+  active     Boolean @default(false)
+  startTime  String // "HH:mm"
+  endTime    String // "HH:mm"
+  breakStart String? // "HH:mm"
+  breakEnd   String? // "HH:mm"
+}
+
+// Bloqueios pontuais: feriados, folgas, férias etc.
+model BlockedPeriod {
+  id        String   @id @default(cuid())
+  startAt   DateTime
+  endAt     DateTime
+  reason    String?
+  createdAt DateTime @default(now())
+
+  @@index([startAt, endAt])
+}
+
+model Appointment {
+  id        String @id @default(cuid())
+  clientId  String
+  client    User   @relation(fields: [clientId], references: [id])
+  serviceId String
+  service   Service @relation(fields: [serviceId], references: [id])
+
+  // Snapshot do serviço no momento da reserva: alterações futuras no
+  // cadastro do serviço não devem afetar reservas já criadas.
+  serviceName     String
+  priceCents      Int
+  durationMinutes Int
+
+  startAt DateTime
+  endAt   DateTime
+  status  String @default("CONFIRMADA")
+
+  googleEventId    String?
+  googleSyncStatus String  @default("NAO_CONECTADO")
+  googleSyncError  String?
+  // Fila durável da sincronização (veja src/lib/google-sync-queue.ts): tentativas feitas e quando tentar de novo.
+  googleSyncAttempts Int       @default(0)
+  googleSyncNextAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([startAt])
+  @@index([status])
+  @@index([clientId])
+  @@index([startAt, status])
+  // Contagem de "novos agendamentos" do painel e fila de sincronização com o Google.
+  @@index([createdAt])
+  @@index([googleSyncStatus, googleSyncNextAt])
+}
+
+// Linha única usada como ponto de bloqueio explícito (lock) nas transações
+// de criação de reserva, garantindo que duas reservas conflitantes nunca
+// sejam confirmadas simultaneamente. Veja lib/booking.ts.
+model BookingLock {
+  id      Int @id @default(1)
+  version Int @default(0)
+}
+
+model GoogleCalendarAccount {
+  id           String   @id @default(cuid())
+  adminUserId  String   @unique
+  admin        User     @relation(fields: [adminUserId], references: [id])
+  // Tokens armazenados criptografados (AES-256-GCM) — veja lib/crypto.ts
+  accessToken  String
+  refreshToken String
+  expiryDate   DateTime
+  calendarId   String   @default("primary")
+  connectedAt  DateTime @default(now())
+  lastSyncError String?
+}
+
+// Contadores do limite de tentativas (login e cadastro). Ficam no banco para
+// valer entre processos/instâncias. A chave guarda só um hash do e-mail/IP
+// (veja src/lib/rate-limit.ts). Linhas expiradas são limpas oportunisticamente.
+model RateLimit {
+  key         String   @id
+  count       Int      @default(0)
+  windowStart DateTime
+  updatedAt   DateTime @updatedAt
+
+  @@index([windowStart])
+}
+
+// Identidade e contatos do estúdio, editáveis pela administradora (Configurações). Linha única (id = 1);
+// sem a linha, o site usa os padrões de src/lib/site.ts, então instalações anteriores seguem funcionando.
+model SiteSettings {
+  id            Int      @id @default(1)
+  siteName      String   @default("")
+  tagline       String   @default("")
+  intro         String   @default("")
+  phone         String   @default("")
+  whatsapp      String   @default("")
+  address       String   @default("")
+  locationNotes String   @default("")
+  instagramUrl  String   @default("")
+  // 0 = sem logo enviada (usa a marca padrão). Incrementa a cada troca e serve de chave de cache da imagem.
+  logoVersion   Int      @default(0)
+  updatedAt     DateTime @updatedAt
+}
+
+// Logo enviada. Fica no banco (e não no disco) para persistir em qualquer hospedagem, inclusive as de
+// sistema de arquivos efêmero, e entrar no backup junto com o resto. Tabela separada: ler as
+// configurações em toda página nunca carrega os bytes da imagem.
+model SiteLogo {
+  id          Int      @id @default(1)
+  contentType String
+  data        Bytes
+  width       Int
+  height      Int
+  updatedAt   DateTime @updatedAt
+}
