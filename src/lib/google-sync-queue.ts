@@ -1,5 +1,5 @@
 import { prisma } from "./db";
-import { isGoogleCalendarConnected, syncAppointmentToGoogle, clearFreeBusyCache } from "./google-calendar";
+import { isGoogleCalendarConnected, syncAppointmentToGoogle, clearFreeBusyCache, safeErrorSummary } from "./google-calendar";
 import { BLOCKING_STATUSES } from "./constants";
 import type { Db } from "./prisma-types";
 
@@ -107,6 +107,65 @@ export async function retryNow(appointmentId: string): Promise<void> {
     data: { googleSyncStatus: "PENDENTE", googleSyncAttempts: 0, googleSyncNextAt: new Date(Date.now() + LEASE_MS) },
   });
   await syncAppointmentToGoogle({ id: appointmentId });
+}
+
+/** Teto de um lote de "tentar todas novamente" e quantas sincronizações rodam ao mesmo tempo (cota e limites do Google). */
+export const RETRY_BATCH_LIMIT = 50;
+export const RETRY_BATCH_CONCURRENCY = 3;
+
+export interface RetryItemResult {
+  id: string;
+  /** Situação depois da tentativa. IGNORADO = outra execução já assumiu este item (nada foi feito aqui). */
+  status: "SINCRONIZADO" | "ERRO" | "PENDENTE" | "NAO_CONECTADO" | "IGNORADO";
+}
+
+/**
+ * "Tentar todas novamente": reenvia as reservas com falha, `concurrency` por vez (não uma a uma, mas também sem
+ * disparar dezenas de chamadas ao Google de uma vez), até `limit` por lote.
+ *
+ *  - Cada item é RESERVADO de forma atômica (ERRO -> PENDENTE com lease, só se ainda estava em ERRO): se duas
+ *    execuções pegarem o mesmo item, só uma o processa e a outra o registra como IGNORADO. Mesmo que isso falhasse,
+ *    o ID determinístico do evento (google-calendar.ts) impede evento duplicado.
+ *  - Falhas são isoladas: um item que dá erro não interrompe os demais, e o resultado de cada um fica registrado na
+ *    própria reserva (status/erro/tentativas) e no retorno.
+ */
+export async function retryFailedBatch(
+  opts: { limit?: number; concurrency?: number; now?: Date } = {}
+): Promise<RetryItemResult[]> {
+  const limit = Math.max(1, Math.min(opts.limit ?? RETRY_BATCH_LIMIT, RETRY_BATCH_LIMIT));
+  const concurrency = Math.max(1, Math.min(opts.concurrency ?? RETRY_BATCH_CONCURRENCY, 10));
+  const now = opts.now ?? new Date();
+
+  const failed = await prisma.appointment.findMany({
+    where: { googleSyncStatus: "ERRO" },
+    orderBy: [{ startAt: "asc" }, { id: "asc" }],
+    take: limit,
+    select: { id: true },
+  });
+
+  const results: RetryItemResult[] = failed.map((a) => ({ id: a.id, status: "IGNORADO" }));
+  let cursor = 0;
+  const worker = async () => {
+    for (let i = cursor++; i < failed.length; i = cursor++) {
+      const { id } = failed[i];
+      try {
+        const claimed = await prisma.appointment.updateMany({
+          where: { id, googleSyncStatus: "ERRO" },
+          data: { googleSyncStatus: "PENDENTE", googleSyncAttempts: 0, googleSyncNextAt: new Date(now.getTime() + LEASE_MS) },
+        });
+        if (claimed.count === 0) continue; // outra execução assumiu o item
+        await syncAppointmentToGoogle({ id });
+        const after = await prisma.appointment.findUnique({ where: { id }, select: { googleSyncStatus: true } });
+        results[i] = { id, status: (after?.googleSyncStatus ?? "ERRO") as RetryItemResult["status"] };
+      } catch (err) {
+        console.error("Erro ao ressincronizar:", safeErrorSummary(err));
+        results[i] = { id, status: "ERRO" };
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, failed.length) }, worker));
+  if (failed.length > 0) clearFreeBusyCache();
+  return results;
 }
 
 /** Resumo para o painel: quantas reservas aguardam e quais falharam. */

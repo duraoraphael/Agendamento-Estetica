@@ -16,14 +16,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:check-overlaps": "tsx scripts/check-overlaps.ts",
-    "test:pg": "node scripts/make-pg-schema.mjs --test && vitest run --config vitest.pg.config.ts",
-    "db:pg:schema": "node scripts/make-pg-schema.mjs",
-    "db:pg:generate": "node scripts/make-pg-schema.mjs && prisma generate --schema prisma/postgres/schema.prisma",
-    "db:pg:deploy": "prisma migrate deploy --schema prisma/postgres/schema.prisma",
     "db:backup": "tsx scripts/backup.ts",
     "db:restore": "tsx scripts/restore.ts",
-    "db:migrate-to-pg": "tsx scripts/migrate-sqlite-to-postgres.ts",
-    "db:rehearse-pg": "tsx scripts/rehearse-pg-migration.ts",
     "test:e2e": "playwright test"
   },
   "prisma": {

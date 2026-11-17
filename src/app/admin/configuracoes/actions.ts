@@ -9,6 +9,7 @@ import { formatZodError } from "@/lib/validation";
 import { LOGO_MAX_BYTES, LogoValidationError } from "@/lib/logo-image";
 import { saveSiteSettings, siteSettingsSchema, validateLogo, type LogoChange } from "@/lib/site-settings";
 import { invalidateSiteSettings } from "@/lib/site-settings-cache";
+import { recordAudit } from "@/lib/audit-log";
 
 export type SettingsFormState = { ok: boolean; message: string; errors?: Record<string, string> } | null;
 
@@ -74,6 +75,14 @@ export async function saveSiteSettingsAction(_prev: SettingsFormState, formData:
   }
 
   securityLog("settings_changed", { adminId: admin.id, logo: logo.kind });
+  // Só o que mudou em termos gerais: os textos digitados (telefone, endereço...) não vão para o log.
+  await recordAudit({
+    action: "settings_changed",
+    actorId: admin.id,
+    targetType: "SiteSettings",
+    targetId: "1",
+    detail: logo.kind === "replace" ? "Dados do estúdio e logo trocada" : logo.kind === "remove" ? "Dados do estúdio e logo removida" : "Dados do estúdio",
+  });
   // Invalida o cache global das configurações e as telas que mostram a identidade.
   invalidateSiteSettings();
   revalidatePath("/", "layout");

@@ -58,4 +58,4 @@ Arquivo: `.claude/agents/revisor-reservas.md`. **Quando usar:** ao alterar qualq
 ## 4. Não vale a pena agora
 
 - **MCP de banco/Google:** só quando houver credenciais reais e uma tarefa recorrente que as exija.
-- **Hook rodando a suíte inteira a cada edição:** lento demais (o `test:pg` e o `test:e2e` levam minutos); deixe para antes de publicar ou para o CI.
+- **Hook rodando a suíte inteira a cada edição:** lento demais (o `npm test` e o `test:e2e` levam minutos); deixe para antes de publicar ou para o CI.

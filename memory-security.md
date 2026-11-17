@@ -23,6 +23,7 @@
 |------|-------|----------|------|--------|-------|
 | 2026-11-05 | 96/100 | 0 | 0 | 8 | Primeira auditoria completa; 12 baixos. Relatório: security-report.md |
 | 2026-11-05 | ~97/100 (estimado) | 0 | 0 | 6 | /security-fix aplicou M1, M8, L1, L11 e criou CI/gitleaks/dependabot; M2 recusado; reauditar para confirmar |
+| 2026-11-16 | 96/100 (antes) → 97/100 (depois) | 0 | 0 | 5 | Reauditoria no PostgreSQL/Supabase. Corrigidos: limite de pedidos de reserva/cancelamento (média), cadastro só aceita JSON (baixa); criada a trilha de auditoria `/admin/logs` (tabela AuditLog, RLS ligado). Abertos: M3, M4, M5, M6, M7. Relatório: security-report.md |
 
 ## Accepted Risks
 # Risks you have reviewed and accepted. Add entries below.

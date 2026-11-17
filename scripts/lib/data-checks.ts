@@ -1,8 +1,6 @@
  
-// Verificações SOMENTE LEITURA sobre os dados (SQLite ou PostgreSQL) e instantâneo para comparação.
-import crypto from "node:crypto";
+// Verificações SOMENTE LEITURA sobre os dados (PostgreSQL).
 
-export const TABLES = ["user", "service", "businessHours", "blockedPeriod", "appointment", "googleCalendarAccount"] as const;
 const VALID_STATUS = ["CONFIRMADA", "CONCLUIDA", "CANCELADA", "FALTA"];
 const BLOCKING = ["CONFIRMADA", "CONCLUIDA"];
 
@@ -73,33 +71,4 @@ export async function findDataIssues(db: any, opts: { maxActiveFuture?: number; 
     }
   }
   return issues;
-}
-
-/** Quais problemas bloqueiam a migração para PostgreSQL (os demais são apenas informativos). */
-export const BLOCKING_KINDS: Issue["kind"][] = ["SOBREPOSICAO", "STATUS_INVALIDO", "PAPEL_INVALIDO", "INTERVALO_INVALIDO", "ORFA", "VALOR_INVALIDO", "EMAIL_DUPLICADO"];
-
-export interface TableSnapshot {
-  count: number;
-  sha256: string;
-}
-
-/** Contagem e hash do conteúdo de cada tabela (IDs, vínculos, horários, preços, status), para comparar origem e destino. */
-export async function snapshot(db: any): Promise<Record<string, TableSnapshot>> {
-  const out: Record<string, TableSnapshot> = {};
-  for (const table of TABLES) {
-    // Ordena em JS (comparação por código): a ordenação do banco depende da collation (SQLite ≠ PostgreSQL).
-    const rows: any[] = (await db[table].findMany()).sort((a: any, b: any) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    const json = JSON.stringify(rows); // Date -> ISO; ordem das chaves segue o schema
-    out[table] = { count: rows.length, sha256: crypto.createHash("sha256").update(json).digest("hex") };
-  }
-  return out;
-}
-
-export function diffSnapshots(a: Record<string, TableSnapshot>, b: Record<string, TableSnapshot>): string[] {
-  const problems: string[] = [];
-  for (const t of TABLES) {
-    if (a[t].count !== b[t].count) problems.push(`${t}: contagem ${a[t].count} ≠ ${b[t].count}`);
-    else if (a[t].sha256 !== b[t].sha256) problems.push(`${t}: conteúdo diferente (mesma contagem, hash distinto)`);
-  }
-  return problems;
 }

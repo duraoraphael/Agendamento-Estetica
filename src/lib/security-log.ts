@@ -11,6 +11,7 @@ export type SecurityEvent =
   | "admin_login"
   | "signup_blocked"
   | "slots_rate_limited"
+  | "booking_rate_limited"
   | "admin_status_changed"
   | "cron_unauthorized"
   | "settings_changed"

@@ -6,6 +6,7 @@ import { loginSchema } from "./validation";
 import { RATE_LIMITS } from "./constants";
 import { getClientIp, hitLimit, limitKey, normalizeEmailForLimit, refundLimit, resetLimit } from "./rate-limit";
 import { securityLog, shortHash } from "./security-log";
+import { recordAuditCoalesced } from "./audit-log";
 import type { Role } from "./types";
 
 /** Código devolvido ao navegador quando o limite de tentativas foi atingido. */
@@ -63,21 +64,41 @@ export const authOptions: AuthOptions = {
         }
         const { email, password } = parsed.data;
 
-        // Limite de tentativas por e-mail normalizado e por IP (este só com proxy confiável declarado).
-        const emailKey = limitKey("login-email", normalizeEmailForLimit(email));
+        // Limites de tentativas. A ORIGEM só existe quando a aplicação declara um proxy confiável
+        // (TRUSTED_PROXY_HOPS): cabeçalhos como X-Forwarded-For são forjáveis e nunca são usados sem isso.
+        //
+        //  - COM origem validada: o bloqueio de uma conta é por PAR origem+e-mail (5 falhas), então quem erra a
+        //    senha de outra pessoa esgota só o próprio par, não o acesso da dona; a mesma origem tentando muitos
+        //    e-mails é barrada por origem (20); e há um teto por e-mail somando todas as origens (50) contra
+        //    tentativa distribuída.
+        //  - SEM origem validada: não há como separar a dona de um atacante, então vale o limite por e-mail
+        //    (5), como antes. É o custo de não confiar em cabeçalhos do cliente; configurar TRUSTED_PROXY_HOPS
+        //    atrás de um proxy elimina esse efeito.
+        const emailNorm = normalizeEmailForLimit(email);
         const ip = getClientIp({ get: (name) => headerValue(req?.headers, name) });
+        const emailKey = limitKey("login-email", emailNorm);
+        const pairKey = ip ? limitKey("login-pair", `${ip}|${emailNorm}`) : null;
         const ipKey = ip ? limitKey("login-ip", ip) : null;
 
         // A tentativa é RESERVADA (contada) antes de verificar a senha, de forma atômica. Assim uma
         // rajada paralela não consegue testar centenas de senhas "antes" de o contador subir.
-        // Login correto devolve a tentativa; a 6ª tentativa por e-mail (limite 5) já é barrada.
-        const [byEmail, byIp] = await Promise.all([
-          hitLimit(emailKey, RATE_LIMITS.loginEmail),
-          ipKey ? hitLimit(ipKey, RATE_LIMITS.loginIp) : Promise.resolve({ blocked: false, retryAfterSeconds: 0 }),
-        ]);
-        if (byEmail.blocked || byIp.blocked) {
+        // Login correto devolve a tentativa; a 6ª tentativa do par (limite 5) já é barrada.
+        const none = { blocked: false, retryAfterSeconds: 0 };
+        const [byPair, byIp] =
+          pairKey && ipKey
+            ? await Promise.all([hitLimit(pairKey, RATE_LIMITS.loginEmail), hitLimit(ipKey, RATE_LIMITS.loginIp)])
+            : [none, none];
+        // O teto por e-mail só é cobrado de quem passou nos limites da própria origem: uma origem já barrada não
+        // consegue, insistindo, esgotar o teto compartilhado e travar a conta para as demais.
+        const byEmail =
+          byPair.blocked || byIp.blocked
+            ? none
+            : await hitLimit(emailKey, ip ? RATE_LIMITS.loginEmailAnySource : RATE_LIMITS.loginEmail);
+        if (byPair.blocked || byIp.blocked || byEmail.blocked) {
           // O e-mail NÃO precisa existir para ser bloqueado: o bloqueio é igual para qualquer e-mail.
           securityLog("login_blocked", { emailHash: shortHash(email) });
+          // Registro DEPOIS do limite e agregado (uma linha por e-mail e hora, com teto): bloquear não vira escrita sem fim.
+          await recordAuditCoalesced({ action: "login_blocked", result: "BLOQUEADO", subject: email });
           throw new Error(RATE_LIMITED_ERROR);
         }
 
@@ -89,10 +110,18 @@ export const authOptions: AuthOptions = {
 
         if (!user || !valid) {
           securityLog("login_failed", { emailHash: shortHash(email) });
+          // Agregado por e-mail e hora, com teto de linhas distintas. Só o hash do e-mail é guardado; nunca a senha.
+          await recordAuditCoalesced({ action: "login_failed", result: "FALHA", subject: email, actorId: user?.id ?? null });
           return null;
         }
 
-        await Promise.all([resetLimit(emailKey), ipKey ? refundLimit(ipKey) : null]);
+        // Login correto zera o contador do par (ou do e-mail, sem origem) e devolve a tentativa ao limite da origem
+        // e ao teto por e-mail: as falhas de OUTRAS origens contra esta conta não são apagadas por um login legítimo.
+        await Promise.all([
+          pairKey ? resetLimit(pairKey) : resetLimit(emailKey),
+          ipKey ? refundLimit(ipKey) : null,
+          pairKey ? refundLimit(emailKey) : null,
+        ]);
         if (user.role === "ADMIN") securityLog("admin_login", { userId: user.id });
         return {
           id: user.id,
@@ -103,6 +132,20 @@ export const authOptions: AuthOptions = {
       },
     }),
   ],
+  // Eventos do NextAuth: disparados DEPOIS que o login foi aceito e a sessão emitida (login) e quando a pessoa encerra a
+  // sessão (logout). Nunca lançam: o log não pode impedir entrar nem sair.
+  events: {
+    async signIn({ user }) {
+      if (!user?.id) return;
+      // Um login com credencial válida custa um bcrypt; ainda assim agrega por conta e minuto para não encher a tabela.
+      await recordAuditCoalesced({ action: "login_success", actorId: user.id }, { windowMs: 60_000, maxDistinctRows: Infinity });
+    },
+    async signOut({ token }) {
+      const id = typeof token?.id === "string" ? token.id : null;
+      if (!id) return;
+      await recordAuditCoalesced({ action: "logout", actorId: id }, { windowMs: 60_000, maxDistinctRows: Infinity });
+    },
+  },
   callbacks: {
     async jwt({ token, user }) {
       if (user) {

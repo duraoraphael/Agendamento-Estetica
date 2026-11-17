@@ -11,6 +11,8 @@ import { createBookingSchema, idSchema } from "@/lib/validation";
 import { RATE_LIMITS } from "@/lib/constants";
 import { hitLimit, limitKey } from "@/lib/rate-limit";
 import { securityLog } from "@/lib/security-log";
+import { recordAuditCoalesced } from "@/lib/audit-log";
+import { horarioUrl } from "@/lib/booking-urls";
 
 const CALENDAR_UNAVAILABLE_MESSAGE =
   "Não foi possível verificar a agenda do estúdio agora. Tente novamente em alguns instantes.";
@@ -26,7 +28,7 @@ async function guardSlotsRequest(userId: string, serviceId: string, dateKey?: st
   ]);
   if (limit.blocked) {
     securityLog("slots_rate_limited", { userId });
-    return { ok: false, error: "Muitas consultas seguidas. Aguarde um instante e tente novamente." } as const;
+    return { ok: false, rateLimited: true, error: "Muitas consultas seguidas. Aguarde um instante e tente novamente." } as const;
   }
   if (dateKey !== undefined && !isValidDateKey(dateKey)) return { ok: false, error: "Data inválida." } as const;
   if (!service || !service.active) return { ok: false, error: "Esse serviço não está mais disponível." } as const;
@@ -57,15 +59,37 @@ export async function getAvailableSlotsAction(serviceId: string, dateKey: string
   }
 }
 
-/** Primeiro dia, depois de `afterDateKey`, que tem ao menos um horário livre (procura até 21 dias à frente). */
-export async function findNextAvailableDayAction(serviceId: string, afterDateKey: string): Promise<{ dateKey: string | null } | { error: string }> {
+/** Quantos dias à frente a busca do próximo dia livre examina, no máximo (arquivo "use server": não exporta constantes). */
+const NEXT_DAY_SEARCH_DAYS = 21;
+
+/**
+ * Resultado da busca. `rateLimited: true` = o orçamento de consultas acabou (a busca foi interrompida e NÃO
+ * significa que não há horários); `{ dateKey: null }` = os dias examinados realmente não têm horário livre.
+ */
+export type NextDayResult = { dateKey: string | null } | { error: string; rateLimited?: true };
+
+/**
+ * Primeiro dia, depois de `afterDateKey`, que tem ao menos um horário livre (procura até 21 dias à frente).
+ *
+ * Cada dia examinado custa uma consulta ao banco e, com o Google conectado, possivelmente uma chamada FreeBusy.
+ * Por isso o orçamento (RATE_LIMITS.nextDayLookupsPerMinute) é cobrado POR DIA, ANTES do trabalho do dia, com o
+ * mesmo limitador atômico das demais ações: pedidos simultâneos da mesma cliente dividem o mesmo saldo, e a busca
+ * para assim que ele acaba.
+ */
+export async function findNextAvailableDayAction(serviceId: string, afterDateKey: string): Promise<NextDayResult> {
   const user = await requireClient();
   const guard = await guardSlotsRequest(user.id, serviceId, afterDateKey);
-  if (!guard.ok) return { error: guard.error };
+  if (!guard.ok) return "rateLimited" in guard ? { error: guard.error, rateLimited: true } : { error: guard.error };
 
   const { year, month, day } = parseDateKey(afterDateKey);
+  const budgetKey = limitKey("slots-search-user", user.id);
   try {
-    for (let i = 1; i <= 21; i++) {
+    for (let i = 1; i <= NEXT_DAY_SEARCH_DAYS; i++) {
+      const unit = await hitLimit(budgetKey, RATE_LIMITS.nextDayLookupsPerMinute, 60_000);
+      if (unit.blocked) {
+        securityLog("slots_rate_limited", { userId: user.id, scope: "next-day-search" });
+        return { error: "Muitas consultas seguidas. Aguarde um instante e tente novamente.", rateLimited: true };
+      }
       const key = new Date(Date.UTC(year, month - 1, day + i)).toISOString().slice(0, 10);
       const candidates = await generateSlotCandidatesForDate(key, guard.service.durationMinutes, prisma, { cacheExternal: true });
       if (candidates.some((c) => c.available)) return { dateKey: key };
@@ -114,6 +138,14 @@ export async function confirmBookingAction(_prev: ConfirmState, formData: FormDa
     return { error: parsed.error.issues[0]?.message ?? "Dados do agendamento incompletos. Volte e escolha o serviço e o horário novamente." };
   }
 
+  // Limite de pedidos por cliente (compartilhado com o cancelamento): reservar e cancelar em laço não pode crescer sem fim.
+  const write = await hitLimit(limitKey("booking-write-user", user.id), RATE_LIMITS.bookingWritesPerMinute, 60_000);
+  if (write.blocked) {
+    securityLog("booking_rate_limited", { userId: user.id });
+    await recordAuditCoalesced({ action: "booking_rate_limited", result: "BLOQUEADO", actorId: user.id });
+    return { error: "Muitos pedidos seguidos. Aguarde um instante e tente novamente." };
+  }
+
   let createdId: string;
   try {
     const created = await createBooking({ clientId: user.id, serviceId: parsed.data.serviceId, startAt: new Date(parsed.data.startAtIso) });
@@ -121,7 +153,7 @@ export async function confirmBookingAction(_prev: ConfirmState, formData: FormDa
   } catch (err) {
     // Outra cliente ocupou o horário (ou ele deixou de valer): volta à escolha, com a lista atualizada e o aviso.
     if (err instanceof BookingConflictError) {
-      redirect(`/agendar/horario?serviceId=${encodeURIComponent(parsed.data.serviceId)}&conflito=1`);
+      redirect(horarioUrl(parsed.data.serviceId, { conflito: true }));
     }
     if (err instanceof BookingValidationError) {
       return { error: err.message };

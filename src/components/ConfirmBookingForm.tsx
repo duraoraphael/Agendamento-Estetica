@@ -4,6 +4,7 @@ import { useFormState, useFormStatus } from "react-dom";
 import Link from "next/link";
 import { confirmBookingAction, type ConfirmState } from "@/app/agendar/actions";
 import { Notice } from "@/components/ui";
+import { horarioUrl } from "@/lib/booking-urls";
 
 function SubmitButton() {
   const { pending } = useFormStatus();
@@ -25,14 +26,14 @@ export function ConfirmBookingForm({ serviceId, startAtIso }: { serviceId: strin
       {state?.error && (
         <Notice tone="error">
           {state.error}{" "}
-          <Link href={`/agendar/horario?serviceId=${serviceId}&conflito=1`} className="font-semibold underline underline-offset-4">
+          <Link href={horarioUrl(serviceId, { conflito: true })} className="font-semibold underline underline-offset-4">
             Escolher outro horário
           </Link>
         </Notice>
       )}
 
       <SubmitButton />
-      <Link href={`/agendar/horario?serviceId=${serviceId}`} className="btn-ghost w-full">
+      <Link href={horarioUrl(serviceId)} className="btn-ghost w-full">
         Voltar e escolher outro horário
       </Link>
     </form>

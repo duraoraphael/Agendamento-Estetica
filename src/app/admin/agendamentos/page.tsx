@@ -6,7 +6,8 @@ import { EmptyState } from "@/components/ui";
 import { getMonthGrid, shiftMonthKey } from "@/lib/calendar-grid";
 import { ALL_APPOINTMENT_STATUSES, type AppointmentStatus } from "@/lib/types";
 import { STATUS_LABELS } from "@/lib/constants";
-import { dateKeyOr, monthKeyOr } from "@/lib/date-keys";
+import { monthKeyOr } from "@/lib/date-keys";
+import { ADMIN_LIST_MAX_RANGE_DAYS, listAppointmentsPage, parsePageNumber, resolveDateRange } from "@/lib/admin-appointments";
 import { requireAdmin } from "@/lib/session";
 import { getNewAppointmentsCount } from "@/lib/admin-stats";
 import { MarkNotificationsSeen } from "@/components/MarkNotificationsSeen";
@@ -24,6 +25,12 @@ function dayLabel(key: string, count: number) {
   return count > 0 ? `${base}, ${count} agendamento${count > 1 ? "s" : ""}` : `${base}, sem agendamentos`;
 }
 
+/** "2026-12-31" -> "31/12/2026" (a chave já é o dia local; não passa por Date para não mudar de dia por fuso). */
+function formatDateKey(key: string) {
+  const [y, m, d] = key.split("-");
+  return `${d}/${m}/${y}`;
+}
+
 function parseKeyToUtcStart(key: string) {
   const [y, m, d] = key.split("-").map(Number);
   return zonedToUtc(y, m, d, 0, 0);
@@ -32,7 +39,7 @@ function parseKeyToUtcStart(key: string) {
 export default async function AgendamentosPage({
   searchParams: searchParamsPromise,
 }: {
-  searchParams: Promise<{ from?: string; to?: string; status?: string; view?: string; month?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; status?: string; view?: string; month?: string; page?: string }>;
 }) {
   // Next 15: searchParams é assíncrono (em Next 14 o await é inofensivo).
   const searchParams = await searchParamsPromise;
@@ -45,30 +52,22 @@ export default async function AgendamentosPage({
   const status = ALL_APPOINTMENT_STATUSES.includes(searchParams.status as AppointmentStatus) ? (searchParams.status as AppointmentStatus) : undefined;
   const monthKey = monthKeyOr(searchParams.month, todayKey.slice(0, 7));
 
-  const fromKey = dateKeyOr(searchParams.from, todayKey);
-  let toKey = dateKeyOr(searchParams.to, fromKey);
-  if (toKey < fromKey) toKey = fromKey;
-
-  const fromUtc = parseKeyToUtcStart(fromKey);
-  const toUtc = new Date(parseKeyToUtcStart(toKey).getTime() + 24 * 60 * 60 * 1000);
+  // Datas validadas no servidor, com intervalo máximo mesmo para valores digitados na URL (src/lib/admin-appointments.ts).
+  const { fromKey, toKey, clamped } = resolveDateRange(searchParams.from, searchParams.to, todayKey);
+  const requestedPage = parsePageNumber(searchParams.page);
 
   const monthStart = parseKeyToUtcStart(`${monthKey}-01`);
   const monthEnd = new Date(parseKeyToUtcStart(shiftMonthKey(monthKey, 1) + "-01").getTime());
 
   // Consultas independentes em paralelo. A lista só é buscada na visão "lista" (no calendário ela não é exibida).
-  const [newCount, appointments, monthAppointments] = await Promise.all([
+  const [newCount, listing, monthAppointments] = await Promise.all([
     getNewAppointmentsCount(admin.id),
-    view === "lista"
-      ? prisma.appointment.findMany({
-          where: { startAt: { gte: fromUtc, lt: toUtc }, status: status ? status : undefined },
-          include: { client: { select: { name: true, phone: true } } },
-          orderBy: { startAt: "asc" },
-        })
-      : Promise.resolve([]),
+    view === "lista" ? listAppointmentsPage({ fromKey, toKey, status, page: requestedPage }) : Promise.resolve(null),
     view === "calendario"
       ? prisma.appointment.findMany({ where: { startAt: { gte: monthStart, lt: monthEnd } }, select: { startAt: true } })
       : Promise.resolve([] as { startAt: Date }[]),
   ]);
+  const appointments = listing?.items ?? [];
   const hasNew = newCount > 0;
 
   const countsByDay = new Map<string, number>();
@@ -149,6 +148,13 @@ export default async function AgendamentosPage({
         </button>
       </form>
 
+      {clamped && (
+        <div className="notice-warning" role="status">
+          O período foi limitado a {ADMIN_LIST_MAX_RANGE_DAYS} dias (de {formatDateKey(fromKey)} a {formatDateKey(toKey)}). Para ver
+          datas mais adiante, escolha um novo período.
+        </div>
+      )}
+
       {view === "calendario" ? (
         <section aria-label="Calendário de agendamentos" className="mx-auto max-w-2xl rounded-2xl border border-neutral-line bg-white p-4 shadow-soft sm:p-6">
           <div className="mb-4 flex items-center justify-between gap-2">
@@ -204,11 +210,34 @@ export default async function AgendamentosPage({
           Não há agendamentos para o período e a situação escolhidos. Ajuste os filtros acima.
         </EmptyState>
       ) : (
-        <AppointmentList label="Agendamentos">
-          {appointments.map((a) => (
-            <AppointmentRow key={a.id} appointment={a} />
-          ))}
-        </AppointmentList>
+        <>
+          <AppointmentList label="Agendamentos">
+            {appointments.map((a) => (
+              <AppointmentRow key={a.id} appointment={a} />
+            ))}
+          </AppointmentList>
+          {listing && listing.pageCount > 1 && (
+            <nav aria-label="Paginação" className="flex items-center justify-between gap-3">
+              {listing.page > 1 ? (
+                <Link href={qs({ page: String(listing.page - 1) })} className="btn-secondary px-4" rel="prev">
+                  ← Anterior
+                </Link>
+              ) : (
+                <span aria-hidden="true" />
+              )}
+              <p className="text-sm text-plum-muted" aria-live="polite">
+                Página {listing.page} de {listing.pageCount} · {listing.total} agendamentos
+              </p>
+              {listing.page < listing.pageCount ? (
+                <Link href={qs({ page: String(listing.page + 1) })} className="btn-secondary px-4" rel="next">
+                  Próxima →
+                </Link>
+              ) : (
+                <span aria-hidden="true" />
+              )}
+            </nav>
+          )}
+        </>
       )}
     </div>
   );

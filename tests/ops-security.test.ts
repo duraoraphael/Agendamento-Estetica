@@ -57,35 +57,46 @@ describe("Retenção de backups: configuração inválida não apaga os backups"
   });
 });
 
-describe("Restauração SQLite segura", () => {
-  it("recusa restaurar sobre o banco em uso (DATABASE_URL) e não o toca", () => {
+describe("Restauração PostgreSQL segura", () => {
+  const dumpFile = () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "agenda-ops-"));
-    const fake = path.join(tmp, "b.sqlite");
-    fs.writeFileSync(fake, "x");
-    const r = run("scripts/restore.ts", [fake.replace(/\\/g, "/"), "--target", "file:./test.db", "--force"]);
+    const f = path.join(tmp, "b.dump");
+    fs.writeFileSync(f, "x");
+    return f.replace(/\\/g, "/");
+  };
+
+  it("recusa restaurar sobre o banco em uso (DATABASE_URL) e não imprime a senha", () => {
+    const r = run("scripts/restore.ts", [dumpFile(), "--target", process.env.DATABASE_URL as string, "--force"]);
     expect(r.status).not.toBe(0);
     expect(r.err).toMatch(/banco em uso/);
+    expect(r.err + r.out).not.toContain("pg-test-only"); // a senha do banco nunca aparece
   });
 
-  it("backup corrompido NÃO destrói um destino bom (copia para temporário, confere, só então substitui)", () => {
-    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "agenda-ops-"));
-    const good = path.join(tmp, "destino.db");
-    fs.writeFileSync(good, "CONTEUDO-BOM");
-    const corrupt = path.join(tmp, "corrompido.sqlite");
-    fs.writeFileSync(corrupt, "isto não é um banco sqlite");
-    const r = run("scripts/restore.ts", [corrupt.replace(/\\/g, "/"), "--target", `file:${good.replace(/\\/g, "/")}`, "--force"]);
+  it("destino que não é PostgreSQL é recusado", () => {
+    const r = run("scripts/restore.ts", [dumpFile(), "--target", "file:./qualquer.db"]);
     expect(r.status).not.toBe(0);
-    expect(fs.readFileSync(good, "utf8")).toBe("CONTEUDO-BOM"); // destino intacto
-    expect(fs.existsSync(good + ".restoring")).toBe(false); // temporário removido
+    expect(r.err).toMatch(/PostgreSQL/);
   });
 });
 
-describe("Backup: falha não deixa arquivo parcial", () => {
-  it("DATABASE_URL inexistente falha e não cria arquivo no diretório de backups", () => {
+describe("Backup: falha não deixa arquivo parcial nem vaza a senha", () => {
+  it("banco inacessível / pg_dump ausente: falha, sem arquivo no diretório de backups e sem a senha na saída", () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "agenda-ops-"));
-    const r = run("scripts/backup.ts", [], { DATABASE_URL: "file:" + path.join(tmp, "nao-existe", "x.db").replace(/\\/g, "/"), BACKUP_DIR: tmp });
+    const r = run("scripts/backup.ts", [], {
+      DIRECT_URL: "postgresql://postgres:SENHA-SECRETA-123@127.0.0.1:1/agenda",
+      PG_BIN_DIR: path.join(tmp, "sem-pg-dump"),
+      BACKUP_DIR: tmp,
+    });
     expect(r.status).not.toBe(0);
     expect(fs.readdirSync(tmp).filter((f) => f.startsWith("agenda-"))).toEqual([]);
+    expect(r.err + r.out).not.toContain("SENHA-SECRETA-123");
+  });
+
+  it("URL que não é PostgreSQL é recusada", () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "agenda-ops-"));
+    const r = run("scripts/backup.ts", [], { DIRECT_URL: "file:./dev.db", BACKUP_DIR: tmp });
+    expect(r.status).not.toBe(0);
+    expect(r.err).toMatch(/PostgreSQL/);
   });
 });
 

@@ -6,6 +6,7 @@ import { Page, Stepper } from "@/components/ui";
 import { cancelPolicyText, getBookingPolicy } from "@/lib/policy";
 import { StudioInfo } from "@/components/StudioInfo";
 import { getSiteSettings } from "@/lib/site-settings-cache";
+import { horarioUrl } from "@/lib/booking-urls";
 
 export default async function RevisarAgendamentoPage({
   searchParams: searchParamsPromise,
@@ -22,7 +23,7 @@ export default async function RevisarAgendamentoPage({
 
   const startDate = new Date(startAt);
   if (Number.isNaN(startDate.getTime()) || startDate.getTime() < Date.now()) {
-    redirect(`/agendar/horario?serviceId=${serviceId}&conflito=1`);
+    redirect(horarioUrl(serviceId, { conflito: true }));
   }
 
   return (

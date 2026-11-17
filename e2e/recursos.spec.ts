@@ -4,14 +4,14 @@ import zlib from "node:zlib";
 import bcrypt from "bcryptjs";
 import { expect, test, type Browser, type Page, type TestInfo } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
-import { E2E_DB, E2E_ENV, E2E_PORT } from "../playwright.config";
+import { E2E_DATABASE_URL, E2E_ENV, E2E_PORT } from "../playwright.config";
 
 /**
  * Verificação de tela dos recursos novos: Configurações (nome, logo, contatos), horários livres (sobreposição
  * parcial, dia sem vagas, corrida entre duas clientes), "Salvar no Google Agenda", painel de sincronização e faturamento.
  * Usa o mesmo build de produção e o mesmo banco descartável de agendamento.spec.ts.
  */
-const prisma = new PrismaClient({ datasourceUrl: `file:${E2E_DB}` });
+const prisma = new PrismaClient({ datasourceUrl: E2E_DATABASE_URL });
 const ADMIN = { email: E2E_ENV.ADMIN_EMAIL, password: E2E_ENV.ADMIN_PASSWORD };
 const PASSWORD = "Tulipa-Rosa-42";
 const stamp = Date.now().toString().slice(-7);
@@ -334,7 +334,9 @@ test("cliente: lista só horários livres (sobreposição parcial), confirma e s
   await check(page, info, "26-detalhe-google-agenda");
 
   // Reserva passada ou cancelada não oferece o botão.
-  const past = await insertAppointment(mine.id, new Date(Date.now() - 3 * 86_400_000).toISOString(), "Esmaltação em gel", "CONCLUIDA");
+  // Dias diferentes por projeto: os dois compartilham o banco e o PostgreSQL recusa reservas ativas sobrepostas.
+  const pastDays = info.project.name === "desktop" ? 3 : 5;
+  const past = await insertAppointment(mine.id, new Date(Date.now() - pastDays * 86_400_000).toISOString(), "Esmaltação em gel", "CONCLUIDA");
   await page.goto(`/meus-agendamentos/${past.id}`);
   await expect(page.getByRole("link", { name: /Salvar no Google Agenda/ })).toHaveCount(0);
 

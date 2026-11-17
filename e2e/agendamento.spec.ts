@@ -3,14 +3,22 @@ import fs from "node:fs";
 import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
-import { E2E_DB, E2E_ENV } from "../playwright.config";
+import { E2E_DATABASE_URL, E2E_ENV } from "../playwright.config";
 
-const prisma = new PrismaClient({ datasourceUrl: `file:${E2E_DB}` });
+const prisma = new PrismaClient({ datasourceUrl: E2E_DATABASE_URL });
 const ADMIN = { email: E2E_ENV.ADMIN_EMAIL, password: E2E_ENV.ADMIN_PASSWORD };
 const PASSWORD = "Tulipa-Rosa-42";
 const stamp = Date.now().toString().slice(-7);
 
 test.describe.configure({ mode: "serial" });
+
+// Os dois projetos (desktop e celular) usam o MESMO banco, e o PostgreSQL recusa reservas ativas sobrepostas
+// (restrição Appointment_no_overlap). O celular usa dias 21 à frente: cai em +30..+39, faixa que nenhum outro teste usa
+// (agendamento do desktop: +9..+19; recursos: +18..+28 e +40..+54), então nunca colide com reservas de outro teste.
+let dayShift = 0;
+test.beforeEach(async ({}, info) => {
+  dayShift = info.project.name === "desktop" ? 0 : 21;
+});
 test.afterAll(async () => {
   await prisma.$disconnect();
 });
@@ -77,7 +85,7 @@ async function login(page: Page, email: string, password: string) {
 /** Dia útil (ter–sex) daqui a `ahead` dias, no horário local do estúdio, devolvido como ISO UTC. */
 function slotIso(ahead: number, hour: number): string {
   const base = new Date();
-  for (let i = ahead; i < ahead + 14; i++) {
+  for (let i = ahead + dayShift; i < ahead + dayShift + 14; i++) {
     const d = new Date(base.getFullYear(), base.getMonth(), base.getDate() + i);
     if (d.getDay() >= 2 && d.getDay() <= 5) {
       const pad = (n: number) => String(n).padStart(2, "0");
@@ -87,11 +95,12 @@ function slotIso(ahead: number, hour: number): string {
   throw new Error("sem dia útil");
 }
 
-async function insertAppointment(clientId: string, startIso: string, status = "CONFIRMADA", minutes = 60, price = 6000) {
+/** `spanSeconds` encurta o intervalo gravado (sem mudar `durationMinutes`): permite reservas coladas, sem sobreposição. */
+async function insertAppointment(clientId: string, startIso: string, status = "CONFIRMADA", minutes = 60, price = 6000, spanSeconds?: number) {
   const svc = await prisma.service.findFirstOrThrow({ where: { name: "Esmaltação em gel" } });
   const start = new Date(startIso);
   return prisma.appointment.create({
-    data: { clientId, serviceId: svc.id, serviceName: svc.name, priceCents: price, durationMinutes: minutes, startAt: start, endAt: new Date(start.getTime() + minutes * 60_000), status },
+    data: { clientId, serviceId: svc.id, serviceName: svc.name, priceCents: price, durationMinutes: minutes, startAt: start, endAt: new Date(start.getTime() + (spanSeconds ?? minutes * 60) * 1000), status },
   });
 }
 
@@ -234,7 +243,9 @@ test("cliente: cancela com mais de 24h (duas etapas), preserva histórico e libe
 
 test("cliente: com menos de 24h não há botão de cancelar; reserva de outra cliente dá 404", async ({ page }, info) => {
   watch(page);
-  const near = await insertAppointment(state.clientId!, new Date(Date.now() + 5 * 3600_000).toISOString(), "CONFIRMADA", 30);
+  // Horas diferentes por projeto (menos de 24h nos dois): eles compartilham o banco e o PostgreSQL recusa sobreposição.
+  const nearHours = info.project.name === "desktop" ? 5 : 8;
+  const near = await insertAppointment(state.clientId!, new Date(Date.now() + nearHours * 3600_000).toISOString(), "CONFIRMADA", 30);
   const other = await prisma.user.create({
     data: { name: "Outra Cliente", email: `outra-${info.project.name}-${stamp}@example.com`, phone: "(11) 97777-6666", passwordHash: "x", role: "CLIENTE" },
   });
@@ -334,7 +345,8 @@ test("administradora: lista, aviso de novos, GET não grava, filtros inválidos,
 test("administradora: faturamento diário, semanal e mensal com dados conhecidos nas viradas (fuso do estúdio)", async ({ page }, info) => {
   watch(page);
   const c = await prisma.user.create({ data: { name: "Cliente Fatura", email: `fat-${info.project.name}-${stamp}@example.com`, phone: "(11) 95555-4444", passwordHash: "x", role: "CLIENTE" } });
-  const at = (iso: string, price: number, status: string) => insertAppointment(c.id, iso, status, 1, price);
+  // Cada reserva ocupa só 1 segundo: as viradas ficam 1 s uma da outra e o PostgreSQL recusa sobreposição.
+  const at = (iso: string, price: number, status: string) => insertAppointment(c.id, iso, status, 1, price, 1);
   // Segunda-feira de referência distinta por projeto (os dois projetos compartilham o mesmo banco).
   const [Y, D] = info.project.name === "desktop" ? [2031, 10] : [2032, 8];
   const p2 = (n: number) => String(n).padStart(2, "0");

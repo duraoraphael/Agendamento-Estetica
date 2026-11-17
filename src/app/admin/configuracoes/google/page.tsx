@@ -13,6 +13,8 @@ const ERROR_MESSAGES: Record<string, string> = {
   estado_invalido: "Não foi possível confirmar a conexão (sessão expirada). Tente novamente.",
   falha_google:
     "O Google não concluiu a conexão. Se já autorizou antes, remova o acesso do app em myaccount.google.com/permissions e tente de novo.",
+  ja_conectado:
+    "Já existe uma conta do Google conectada por outra administradora. O site usa uma única agenda: desconecte a atual antes de conectar outra.",
 };
 
 export default async function GoogleConfigPage({
@@ -22,12 +24,15 @@ export default async function GoogleConfigPage({
 }) {
   // Next 15: searchParams é assíncrono (em Next 14 o await é inofensivo).
   const searchParams = await searchParamsPromise;
-  const admin = await requireAdmin();
+  await requireAdmin();
   const configured = isGoogleConfigured();
-  const [account, overview] = await Promise.all([
-    prisma.googleCalendarAccount.findUnique({ where: { adminUserId: admin.id } }),
+  // A conexão é única para o negócio (veja google-calendar.ts): qualquer administradora vê e pode desfazer a conexão atual.
+  const [accounts, overview] = await Promise.all([
+    prisma.googleCalendarAccount.findMany({ orderBy: [{ connectedAt: "asc" }, { id: "asc" }], take: 2 }),
     getSyncOverview(),
   ]);
+  const account = accounts[0] ?? null;
+  const ambiguous = accounts.length > 1;
   const mock = isMockCalendarEnabled();
 
   const errorMessage = searchParams.erro ? ERROR_MESSAGES[searchParams.erro] ?? "Não foi possível conectar ao Google Agenda." : null;
@@ -46,6 +51,12 @@ export default async function GoogleConfigPage({
         <div className="notice-success" role="status">Google Agenda conectado com sucesso!</div>
       )}
       {errorMessage && <div className="notice-error" role="alert">{errorMessage}</div>}
+      {ambiguous && (
+        <div className="notice-error" role="alert">
+          Há mais de uma conta do Google conectada, e o site não escolhe uma por conta própria: enquanto isso, novas reservas
+          são recusadas. Desconecte abaixo e conecte a conta certa de novo.
+        </div>
+      )}
 
       {mock && (
         <div className="notice-warning" role="status">

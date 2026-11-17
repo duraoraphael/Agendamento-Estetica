@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getAdminApiUser } from "@/lib/session";
-import { handleGoogleOAuthCallback, safeErrorSummary, clearFreeBusyCache } from "@/lib/google-calendar";
+import { handleGoogleOAuthCallback, safeErrorSummary, clearFreeBusyCache, GoogleAccountConflictError } from "@/lib/google-calendar";
 import { enqueueUnsyncedFuture, processGoogleSyncQueue } from "@/lib/google-sync-queue";
+import { recordAudit } from "@/lib/audit-log";
 
 export async function GET(req: NextRequest) {
   const admin = await getAdminApiUser();
@@ -15,6 +16,7 @@ export async function GET(req: NextRequest) {
   const expectedState = req.cookies.get("google_oauth_state")?.value;
 
   if (!code || !state || !expectedState || state !== expectedState) {
+    await recordAudit({ action: "google_connect_failed", result: "FALHA", actorId: admin.id, detail: "Verificação de segurança (state) inválida" });
     return NextResponse.redirect(new URL("/admin/configuracoes/google?erro=estado_invalido", req.url));
   }
 
@@ -23,11 +25,19 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     // Nunca registra o objeto de erro inteiro (pode carregar o código de autorização) e nunca ecoa texto cru na URL.
     console.error("Falha ao conectar Google Agenda:", safeErrorSummary(err));
-    const res = NextResponse.redirect(new URL("/admin/configuracoes/google?erro=falha_google", req.url));
+    const reason = err instanceof GoogleAccountConflictError ? "ja_conectado" : "falha_google";
+    await recordAudit({
+      action: "google_connect_failed",
+      result: "FALHA",
+      actorId: admin.id,
+      detail: reason === "ja_conectado" ? "Já existe outra conta do Google conectada" : "O Google recusou ou falhou na conexão",
+    });
+    const res = NextResponse.redirect(new URL(`/admin/configuracoes/google?erro=${reason}`, req.url));
     res.cookies.delete("google_oauth_state");
     return res;
   }
 
+  await recordAudit({ action: "google_connected", actorId: admin.id, targetType: "GoogleCalendarAccount" });
   // Reservas futuras que já existiam antes da conexão entram na fila e são enviadas agora (idempotente).
   clearFreeBusyCache();
   await enqueueUnsyncedFuture().catch((err) => console.error("Falha ao enfileirar reservas existentes:", safeErrorSummary(err)));

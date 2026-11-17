@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { processGoogleSyncQueue } from "@/lib/google-sync-queue";
 import { securityLog } from "@/lib/security-log";
+import { recordAuditCoalesced } from "@/lib/audit-log";
 
 // Gatilho EXTERNO da fila de sincronização com o Google Agenda, para hospedagem sem processo sempre ligado
 // (serverless): configure um agendador (Vercel Cron, GitHub Actions, cron-job.org...) para chamar esta rota a
@@ -23,6 +24,8 @@ function authorized(req: Request): boolean {
 async function run(req: Request) {
   if (!authorized(req)) {
     securityLog("cron_unauthorized", {});
+    // Qualquer pessoa na internet pode chamar esta rota: UMA linha por hora (com contador), nunca uma por chamada.
+    await recordAuditCoalesced({ action: "cron_unauthorized", result: "BLOQUEADO" });
     return NextResponse.json({ error: "Não autorizado." }, { status: 401, headers: { "Cache-Control": "no-store" } });
   }
   const result = await processGoogleSyncQueue({ limit: 25 });

@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { formatInTimeZone } from "date-fns-tz";
 import { checkSlotStillAvailableAction, findNextAvailableDayAction, getAvailableSlotsAction } from "@/app/agendar/actions";
 import { TIMEZONE } from "@/lib/constants";
+import { createSlotRequestTracker } from "@/lib/slot-request-tracker";
+import { revisarUrl } from "@/lib/booking-urls";
 
 interface Day {
   key: string;
@@ -30,8 +32,10 @@ export function SlotPicker({ serviceId, days }: { serviceId: string; days: Day[]
   const [searching, setSearching] = useState(false);
   const [navigating, startTransition] = useTransition();
 
-  // Evita que uma resposta antiga (de outro dia ou de uma consulta anterior) sobrescreva a mais recente.
-  const requestId = useRef(0);
+  // Ordena as respostas: descarta as de outro dia/serviço e impede que uma antiga sobrescreva a mais nova.
+  // Uma atualização em segundo plano (quiet) não invalida o carregamento normal em andamento
+  // (regras em src/lib/slot-request-tracker.ts).
+  const tracker = useRef(createSlotRequestTracker());
   const selectedSlotRef = useRef<string | null>(null);
   selectedSlotRef.current = selectedSlot;
 
@@ -39,21 +43,23 @@ export function SlotPicker({ serviceId, days }: { serviceId: string; days: Day[]
   const load = useCallback(
     async (day: string, opts: { quiet?: boolean } = {}) => {
       if (!day) return;
-      const id = ++requestId.current;
-      if (!opts.quiet) {
+      const quiet = !!opts.quiet;
+      const key = `${serviceId}|${day}`;
+      const id = tracker.current.start(key, quiet);
+      if (!quiet) {
         setLoading(true);
         setError(null);
       }
+      let result: Awaited<ReturnType<typeof getAvailableSlotsAction>> | null = null;
       try {
-        const result = await getAvailableSlotsAction(serviceId, day);
-        if (id !== requestId.current) return;
-        if ("error" in result) {
-          if (!opts.quiet) {
-            setError(result.error);
-            setData(null);
-          }
-          return;
-        }
+        result = await getAvailableSlotsAction(serviceId, day);
+      } catch {
+        result = null; // falha de rede
+      }
+      const ok = result !== null && !("error" in result);
+      const outcome = tracker.current.settle(id, key, quiet, ok);
+
+      if (outcome.applyData && result && !("error" in result)) {
         setError(null);
         setData(result);
         // O horário escolhido sumiu da lista (outra cliente reservou, ou o prazo mínimo passou): retira a seleção e avisa.
@@ -62,13 +68,15 @@ export function SlotPicker({ serviceId, days }: { serviceId: string; days: Day[]
           setSelectedSlot(null);
           setNotice(`O horário das ${time(chosen)} acabou de ser ocupado. Escolha outro horário disponível.`);
         }
-      } catch {
-        if (id !== requestId.current || opts.quiet) return;
-        setError("Não foi possível carregar os horários. Verifique sua conexão e tente novamente.");
+      } else if (outcome.reportError) {
+        setError(
+          result && "error" in result
+            ? result.error
+            : "Não foi possível carregar os horários. Verifique sua conexão e tente novamente."
+        );
         setData(null);
-      } finally {
-        if (id === requestId.current && !opts.quiet) setLoading(false);
       }
+      if (outcome.clearLoading) setLoading(false);
     },
     [serviceId]
   );
@@ -113,7 +121,7 @@ export function SlotPicker({ serviceId, days }: { serviceId: string; days: Day[]
         return;
       }
       startTransition(() => {
-        router.push(`/agendar/revisar?serviceId=${serviceId}&startAt=${encodeURIComponent(selectedSlot)}`);
+        router.push(revisarUrl(serviceId, selectedSlot));
       });
     } catch {
       setNotice("Não foi possível conferir o horário. Verifique sua conexão e tente novamente.");

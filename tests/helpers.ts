@@ -2,8 +2,26 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { zonedToUtc, dateKeyInTz } from "@/lib/format";
 
+/**
+ * resetDb() APAGA todas as tabelas. Só roda contra o PostgreSQL local e descartável dos testes (tests/pg-env.ts):
+ * se a DATABASE_URL apontar para qualquer outro servidor (ex.: o Supabase do .env), recusa antes de apagar algo.
+ */
+function assertDisposableDatabase() {
+  let host = "";
+  try {
+    host = new URL(process.env.DATABASE_URL ?? "").hostname;
+  } catch {
+    /* URL inválida: cai na recusa abaixo */
+  }
+  if (host !== "127.0.0.1" && host !== "localhost") {
+    throw new Error("Recusei apagar os dados: DATABASE_URL não é um banco local descartável. Os testes nunca devem tocar o Supabase.");
+  }
+}
+
 export async function resetDb() {
+  assertDisposableDatabase();
   await prisma.rateLimit.deleteMany();
+  await prisma.auditLog.deleteMany();
   await prisma.siteSettings.deleteMany();
   await prisma.siteLogo.deleteMany();
   await prisma.appointment.deleteMany();

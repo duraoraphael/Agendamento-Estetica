@@ -86,14 +86,14 @@ export async function refundLimit(key: string): Promise<void> {
   await withBusyRetry(() => prisma.rateLimit.updateMany({ where: { key, count: { gt: 0 } }, data: { count: { decrement: 1 } } }));
 }
 
-/** O limitador escreve no mesmo arquivo SQLite das reservas: repete poucas vezes em caso de lock transitório. */
+/** O limitador escreve no mesmo banco das reservas: repete poucas vezes em caso de falha transitória (lock/timeout do pool). */
 async function withBusyRetry<T>(fn: () => Promise<T>): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
       return await fn();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      const busy = message.includes("SQLITE_BUSY") || message.includes("database is locked") || message.includes("Timed out");
+      const busy = message.includes("deadlock detected") || message.includes("P2034") || message.includes("Timed out");
       if (!busy || attempt >= 4) throw err;
       await new Promise((r) => setTimeout(r, 40 * attempt));
     }

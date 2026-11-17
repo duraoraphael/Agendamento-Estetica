@@ -2,15 +2,18 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// Banco ÚNICO: PostgreSQL (Supabase, região São Paulo).
+//  - url:       conexão da aplicação (Transaction pooler, porta 6543, com ?pgbouncer=true).
+//  - directUrl: conexão para migrações (Session pooler ou Direct, porta 5432); só o Prisma CLI a usa.
+// Restrições que o Prisma não modela (sem sobreposição de horários, CHECKs, RLS) estão em prisma/migrations.
 datasource db {
-  // SQLite local: zero configuração externa. Para produção com mais
-  // concorrência simultânea, troque para PostgreSQL (veja README).
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
-// SQLite não suporta enums nativos no Prisma: os valores abaixo são
-// validados/tipados em TypeScript (veja src/lib/types.ts e validation.ts).
+// Os valores abaixo são strings validadas/tipadas em TypeScript (veja src/lib/types.ts e validation.ts)
+// e protegidas por CHECK no banco (prisma/migrations/*_integrity_constraints).
 // Role: "CLIENTE" | "ADMIN"
 // AppointmentStatus: "CONFIRMADA" | "CONCLUIDA" | "CANCELADA" | "FALTA"
 // GoogleSyncStatus: "NAO_CONECTADO" | "PENDENTE" | "SINCRONIZADO" | "ERRO"
@@ -134,6 +137,40 @@ model RateLimit {
   updatedAt   DateTime @updatedAt
 
   @@index([windowStart])
+}
+
+// Trilha de auditoria (página /admin/logs). Só o servidor grava; a interface administrativa apenas lê.
+// NUNCA guarda senha, token, cookie, chave, corpo de requisição, e-mail, nome ou celular: pessoas entram só como
+// `actorId` (ID interno) ou `subjectHash` (hash curto do e-mail, para tentativas sem conta identificada).
+// `actorId` não tem chave estrangeira de propósito: o histórico sobrevive à remoção da conta.
+// Eventos repetitivos de falha/bloqueio são AGREGADOS (`count`) por chave e por hora, com teto de linhas distintas,
+// para que um ataque não faça a tabela crescer sem limite (veja src/lib/audit-log.ts).
+// Valores válidos de category/result: veja src/lib/audit-types.ts (e os CHECKs na migração).
+model AuditLog {
+  id          String   @id @default(cuid())
+  // CADASTRO | LOGIN | LOGOUT | MARCACAO | ADMIN | INTEGRACAO
+  category    String
+  action      String
+  // SUCESSO | FALHA | BLOQUEADO
+  result      String
+  actorId     String?
+  subjectHash String?
+  targetType  String?
+  targetId    String?
+  // Texto curto montado pelo código (nunca texto livre vindo de usuário sem limpeza).
+  detail      String?
+  count       Int      @default(1)
+  // Chave de idempotência: a mesma operação repetida não gera uma segunda linha.
+  dedupeKey   String?  @unique
+  // Primeira ocorrência (linhas agregadas) e ocorrência mais recente (usada para ordenar e filtrar).
+  createdAt   DateTime @default(now())
+  occurredAt  DateTime @default(now())
+
+  @@index([category, occurredAt])
+  @@index([occurredAt])
+  @@index([actorId, occurredAt])
+  @@index([subjectHash])
+  @@index([action, createdAt])
 }
 
 // Identidade e contatos do estúdio, editáveis pela administradora (Configurações). Linha única (id = 1);

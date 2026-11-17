@@ -10,11 +10,9 @@ O repositório estava vazio, então a stack foi escolhida do zero:
 
 - **Next.js 14 (App Router) + TypeScript** — front-end e back-end no mesmo
   projeto (páginas, Server Actions e rotas de API), SSR e layout mobile-first.
-- **Prisma ORM + SQLite** — banco relacional com migrations versionadas.
-  SQLite foi escolhido para que o projeto rode **sem nenhum serviço externo**
-  (sem Docker/Postgres instalados neste ambiente). O schema é 100% relacional
-  e a troca para PostgreSQL em produção é só uma mudança de `datasource` (veja
-  [Usando PostgreSQL em produção](#usando-postgresql-em-produção)).
+- **Prisma ORM + PostgreSQL (Supabase, região São Paulo)** — banco relacional ÚNICO, com migrations
+  versionadas em `prisma/migrations`. Restrições que o Prisma não modela (sem sobreposição de
+  horários, CHECKs e RLS) estão em SQL nessas migrations.
 - **NextAuth (Auth.js) v4** — autenticação por e-mail/senha (Credentials),
   sessão JWT com o papel (`CLIENTE`/`ADMIN`) embutido.
 - **Tailwind CSS** — interface leve e mobile-first.
@@ -25,7 +23,8 @@ O repositório estava vazio, então a stack foi escolhida do zero:
 ## Requisitos
 
 - Node.js 18+ (testado com Node 24)
-- Nenhum banco de dados externo é necessário — o SQLite é um arquivo local.
+- Um projeto no [Supabase](https://supabase.com) (PostgreSQL), de preferência na região **São Paulo (sa-east-1)**.
+- Os testes NÃO usam o Supabase: rodam num PostgreSQL embutido e descartável (sem Docker).
 
 ## Configuração inicial
 
@@ -36,6 +35,9 @@ cp .env.example .env
 
 Edite o `.env` e defina pelo menos:
 
+- `DATABASE_URL` e `DIRECT_URL` — as strings do Supabase (**Connect**): *Transaction pooler* (porta 6543, com
+  `?pgbouncer=true`) para o app e *Session pooler* ou *Direct* (porta 5432) para migrations e backup.
+  O modelo completo, com instruções, está em `.env.example`.
 - `NEXTAUTH_SECRET` — gere com `openssl rand -base64 32`.
 - `TOKEN_ENCRYPTION_KEY` — gere com `openssl rand -base64 32` (usada só para
   criptografar os tokens do Google Agenda em repouso).
@@ -45,9 +47,12 @@ Edite o `.env` e defina pelo menos:
 Rode as migrations e o seed:
 
 ```bash
-npm run db:migrate   # cria o banco (prisma/dev.db) e aplica as migrations
+npm run db:deploy    # aplica prisma/migrations no Supabase (tabelas, restrições, RLS)
 npm run db:seed      # cria a primeira administradora, expediente padrão e serviços de exemplo
 ```
+
+> `npm run dev` usa o banco do `.env`, ou seja, o **Supabase**. Se ele também for o de produção, use um segundo
+> projeto Supabase só para desenvolvimento: o dev e o seed gravam de verdade.
 
 Inicie o servidor:
 
@@ -64,18 +69,24 @@ do site (`/cadastro`) sempre cria uma conta `CLIENTE`, mesmo que alguém tente
 manipular a requisição — o papel é decidido no servidor, nunca lido do corpo
 da requisição (veja `src/app/api/auth/cadastro/route.ts`).
 
-A única forma de criar/promover uma conta administrativa é pelo script de
-seed, que lê `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_PHONE` e `ADMIN_PASSWORD` do
-`.env`:
+A única forma de criar uma conta administrativa é pelo script de seed, que lê
+`ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_PHONE` e `ADMIN_PASSWORD` do `.env`:
 
 ```bash
 npm run db:seed
 ```
 
-Rodar de novo com um `ADMIN_EMAIL` já existente apenas garante que aquele
-e-mail continue com papel `ADMIN` (idempotente). Para trocar a senha depois,
-edite `ADMIN_PASSWORD` no `.env` e rode o seed novamente, ou atualize a senha
-direto no banco com `npx prisma studio`.
+O seed **só cria** a conta, e nunca promove nem altera uma conta que já exista
+(o cadastro público não verifica o e-mail, então promover uma linha existente
+poderia entregar o painel a quem escolheu a senha dela):
+
+- e-mail novo → cria a conta `ADMIN`;
+- e-mail que já é `ADMIN` → não muda nada (nem a senha), então rodar de novo é seguro;
+- e-mail que já pertence a uma cliente → o seed **é interrompido** com uma
+  mensagem de erro e nada é alterado nessa conta. Use outro `ADMIN_EMAIL`.
+
+Como o seed não troca senhas, para trocar a senha da administradora use
+`npx prisma studio` (ou um script próprio que gere o hash bcrypt).
 
 ## Configurando serviços e expediente
 
@@ -128,6 +139,12 @@ sem internet etc.), "⚠ Falha ao sincronizar" com um botão **Tentar
 novamente** — a nova tentativa reaproveita o evento já criado (nunca duplica).
 O status de sincronização e o último erro ficam salvos no banco (`Appointment.googleSyncStatus`/`googleSyncError` e `GoogleCalendarAccount.lastSyncError`).
 
+**Uma só agenda.** O negócio usa uma única conta do Google: as reservas não guardam a qual conta pertencem, então o evento de qualquer reserva vai para a conta conectada. Por isso:
+- conectar enquanto **outra** administradora já tem uma conta conectada é recusado ("desconecte a atual antes"); reconectar a própria conta apenas a substitui;
+- se mesmo assim existirem duas contas gravadas (dados antigos), o site **não escolhe uma**: novas reservas e sincronizações falham com aviso até alguém clicar em **Desconectar** em `/admin/configuracoes/google` (qualquer administradora pode) e conectar a conta certa;
+- quando o Google emite um novo *refresh token*, ele é gravado (cifrado) na conexão; sem um novo, o guardado é mantido;
+- **Tentar novamente todas** reenvia até 50 reservas com falha, 3 por vez, sem duplicar eventos.
+
 ## Fuso horário e formato
 
 Toda a aplicação trabalha com o fuso `America/Sao_Paulo`: os horários
@@ -139,21 +156,20 @@ exibidas no padrão brasileiro (`dd/MM/yyyy`, `HH:mm`) e valores em reais
 
 ## Prevenção de sobreposição de horários
 
-Como o projeto roda em SQLite (sem suporte a `EXCLUDE CONSTRAINT`), a
-prevenção de sobreposição é feita por **transação com bloqueio adequado**
-(uma das duas abordagens pedidas), em `src/lib/booking.ts`:
+A prevenção de sobreposição tem **duas camadas**: a **transação com bloqueio** em
+`src/lib/booking.ts` (abaixo) e, como segunda garantia no próprio banco, a restrição
+`Appointment_no_overlap` do PostgreSQL (veja [PostgreSQL, backup e publicação](#postgresql-backup-e-publicação)).
 
 1. A **criação** e a **reativação** de reservas (voltar uma reserva cancelada para
    confirmada) passam pelo mesmo mecanismo, `runLocked`, dentro de uma transação do Prisma.
 2. A primeira instrução da transação é um `UPDATE` em uma linha única
-   (`BookingLock`), o que faz o SQLite escalar imediatamente para um lock de
-   escrita exclusivo do banco.
+   (`BookingLock`), que trava a linha até o `COMMIT`: as outras transações esperam nela.
 3. Só depois disso a disponibilidade do horário é reconferida — se duas
    clientes tentarem reservar o mesmo horário (ou horários que se sobrepõem)
    ao mesmo tempo, a segunda transação fica bloqueada até a primeira
    confirmar, reavalia a disponibilidade já vendo a reserva recém-criada, e é
    corretamente rejeitada com uma mensagem clara.
-4. Falhas transitórias de lock (`SQLITE_BUSY`) são reexecutadas automaticamente.
+4. Falhas transitórias (deadlock ou serialização do PostgreSQL) são reexecutadas automaticamente.
 5. As regras de horário são **as mesmas ao listar e ao confirmar**: dentro do
    expediente e fora do almoço, alinhado à grade de 15 minutos (a partir do início
    do expediente), com antecedência mínima de 30 minutos e no máximo 60 dias à
@@ -164,37 +180,16 @@ prevenção de sobreposição é feita por **transação com bloqueio adequado**
 Isso está coberto por teste automatizado (duas reservas simultâneas para o
 mesmo horário e sobreposição parcial — veja [Testes](#testes-automatizados)).
 
-### Usando PostgreSQL em produção
-
-> **Atualizado:** a variante PostgreSQL já está pronta e testada (restrição de exclusão no banco, migrações, migração de dados, backup). Veja a seção [PostgreSQL, backup e publicação](#postgresql-backup-e-publicação) e [docs/publicacao.md](docs/publicacao.md). O trecho abaixo é só o princípio.
-
-Para mais concorrência simultânea (múltiplas profissionais, volume alto),
-troque o `datasource` do `prisma/schema.prisma` para `postgresql` e use, em
-vez do lock manual, uma constraint nativa:
-
-```sql
-CREATE EXTENSION IF NOT EXISTS btree_gist;
-
-ALTER TABLE "Appointment" ADD COLUMN period tstzrange
-  GENERATED ALWAYS AS (tstzrange("startAt", "endAt", '[)')) STORED;
-
-ALTER TABLE "Appointment" ADD CONSTRAINT no_overlap
-  EXCLUDE USING gist (period WITH &&)
-  WHERE (status IN ('CONFIRMADA', 'CONCLUIDA'));
-```
-
-Isso faz o próprio Postgres rejeitar qualquer `INSERT`/`UPDATE` que crie uma
-sobreposição, sem precisar do lock manual do `BookingLock`.
-
 ## Testes automatizados
 
 ```bash
 npm test
 ```
 
-Os testes rodam contra um **banco SQLite de teste real** (`prisma/test.db`,
-recriado do zero a cada execução — veja `tests/global-setup.ts`), não contra
-mocks. Cobertura (177 testes na suíte SQLite, 176 na PostgreSQL; 26 testes de tela no e2e):
+Os testes rodam contra um **PostgreSQL real, embutido e descartável** (sem Docker; as mesmas
+migrations que vão para o Supabase, recriadas do zero a cada execução — veja `tests/global-setup.ts`),
+não contra mocks e **nunca contra o Supabase** (`resetDb()` recusa qualquer banco que não seja local).
+Cobertura (__TESTES__ testes; 26 testes de tela no e2e):
 
 | Cenário pedido | Onde está testado |
 |---|---|
@@ -233,14 +228,14 @@ integração desligada, exatamente como ela se comporta sem credenciais.
 | `npm run dev` | Servidor de desenvolvimento (Turbopack: 2,6× a 11× mais rápido na 1ª visita de cada página; veja [docs/perf/resultados.md](docs/perf/resultados.md)) |
 | `npm run dev:webpack` | Servidor de desenvolvimento com webpack (o anterior) |
 | `npm run build` / `npm start` | Build e execução em produção |
-| `npm run db:migrate` | Cria/atualiza o banco local a partir do schema |
-| `npm run db:deploy` | Aplica migrations em produção (sem gerar novas) |
+| `npm run db:migrate` | Cria uma NOVA migration a partir de mudanças no schema (desenvolvimento; usa o banco do `.env`) |
+| `npm run db:deploy` | Aplica as migrations existentes no banco do `DIRECT_URL` (Supabase), sem gerar novas |
 | `npm run db:seed` | Cria a admin, expediente padrão e serviços de exemplo |
 | `npm run db:studio` | Interface visual do banco (Prisma Studio) |
 | `npm test` | Roda a suíte de testes automatizados |
 | `npm run db:check-overlaps` | Relatório somente leitura: sobreposições, situações inválidas, órfãos, clientes acima do limite |
-| `npm run test:pg` · `npm run test:e2e` | Suíte contra PostgreSQL real · testes de tela (Edge, desktop e 390 px) |
-| `npm run db:backup` · `npm run db:restore` · `npm run db:rehearse-pg` | Backup com retenção · restauração · ensaio da migração para PostgreSQL |
+| `npm run test:e2e` | Testes de tela (Edge, desktop e 390 px; PostgreSQL embutido próprio) |
+| `npm run db:backup` · `npm run db:restore` | Backup (`pg_dump`) com retenção · restauração (`pg_restore`) |
 | `npm run lint` | ESLint |
 
 ## Estrutura do projeto
@@ -269,15 +264,23 @@ hashes SHA-256, o e-mail/IP não ficam em claro). Os valores estão em
 
 | Ação | Chave | Limite |
 |---|---|---|
-| Login (falhas) | e-mail normalizado (minúsculas, sem espaços, Unicode NFKC) | 5 falhas; a 6ª tentativa é barrada |
-| Login (falhas) | IP | 20 falhas (mais alto: várias clientes podem dividir o mesmo Wi-Fi) |
+| Login (falhas), **com** `TRUSTED_PROXY_HOPS` | **IP + e-mail** normalizado (minúsculas, sem espaços, Unicode NFKC) | 5 falhas por par; a 6ª tentativa do par é barrada |
+| Login (falhas), **com** `TRUSTED_PROXY_HOPS` | IP | 20 falhas (mais alto: várias clientes podem dividir o mesmo Wi-Fi) |
+| Login (falhas), **com** `TRUSTED_PROXY_HOPS` | e-mail, somando todos os IPs | 50 falhas (freia ataque distribuído; só é cobrado de quem passou nos limites do próprio IP) |
+| Login (falhas), **sem** `TRUSTED_PROXY_HOPS` | e-mail normalizado | 5 falhas; a 6ª tentativa é barrada |
 | Cadastro (tentativas) | e-mail normalizado | 5 tentativas; a 6ª recebe `429` + `Retry-After` |
 | Cadastro (tentativas) | IP | 10 tentativas |
 
 - O bloqueio vale para **qualquer** e-mail, exista conta ou não, e é igual para todos.
-  Um login correto zera o contador do e-mail.
-- Trade-off conhecido: quem sabe o e-mail de outra pessoa pode bloqueá-la por até 15
-  minutos digitando senhas erradas. É o custo de limitar força bruta sem CAPTCHA.
+  Um login correto zera o contador daquele IP + e-mail (ou do e-mail, sem proxy declarado).
+- **Terceiros não bloqueiam a dona da conta (com proxy confiável declarado).** Quem erra
+  a senha de outra pessoa esgota só o *próprio* par IP + e-mail; a dona, em outra rede,
+  continua entrando. Um IP que insiste depois de barrado não gasta o teto por e-mail. Esgotar
+  esse teto exige 50 falhas vindas de pelo menos 10 IPs diferentes.
+- **Sem `TRUSTED_PROXY_HOPS` não há como separar a dona de um atacante** (cabeçalhos de
+  IP do cliente não são confiáveis), então vale o limite só por e-mail: quem sabe o e-mail
+  de outra pessoa pode bloqueá-la por até 15 minutos digitando senhas erradas. Atrás de um
+  proxy/CDN confiável, declare `TRUSTED_PROXY_HOPS` para eliminar esse efeito.
 - **Limite por IP e proxy.** Cabeçalhos como `X-Forwarded-For` podem ser forjados por
   qualquer cliente, então **por padrão são ignorados** e o limite por IP fica desativado
   (o limite por e-mail continua valendo). Se o site roda atrás de proxy/CDN confiável,
@@ -298,6 +301,35 @@ fluxo "confirmar e-mail para ativar a conta" + "esqueci minha senha". Esses flux
 hoje**; não há troca de senha no site, então a política de senha abaixo vale para o cadastro e
 para a senha da conta administrativa criada no seed (e deve ser reutilizada, via `passwordSchema`,
 quando a troca/recuperação for criada).
+
+### Logs (trilha de auditoria) — `/admin/logs`
+
+Página só para a administradora (o middleware, o layout do painel, a própria página e a função de consulta
+`listAuditLogs` conferem a sessão e o papel **no banco**). Abas: **Cadastro, Login, Logout, Marcação, Ações
+administrativas, Integrações**. Mostra data e hora (Brasília), ação, resultado, responsável e registro afetado, do mais
+recente para o mais antigo, com 25 linhas por página (máximo 50) e filtros de período (padrão 30 dias, máximo 92),
+resultado e usuário (nome, ou e-mail completo). Os registros são **somente leitura**: não existe ação, rota ou tela que os
+altere ou apague.
+
+- **Onde está o código:** gravação em `src/lib/audit-log.ts`, leitura em `src/lib/audit-log-read.ts`, vocabulário em
+  `src/lib/audit-types.ts`, tabela `AuditLog` (migração `20261116010000_audit_log`, com RLS ligado).
+- **Ações de negócio** (reserva criada/cancelada/situação alterada, serviço, expediente, bloqueios, cadastro) são
+  gravadas **na mesma transação** da mudança: o registro só existe se a mudança foi confirmada, e uma chave de
+  idempotência impede linha duplicada.
+- **Eventos que um atacante gera em volume** (login recusado/bloqueado, cadastro repetido/bloqueado, chamada não
+  autorizada ao cron, excesso de pedidos de reserva) são **agrupados**: uma linha por (ação, quem, hora) com contador, no
+  máximo 50 linhas distintas por ação e hora; o excedente vira uma única linha "agrupada". São gravados **depois** dos
+  limites de tentativas, então não os enfraquecem.
+- **O que nunca é gravado:** senha, token, cookie, chave, segredo OAuth, corpo de requisição, e-mail, nome e celular.
+  Pessoas aparecem só como ID interno (o nome é buscado na hora de exibir) ou, em tentativa sem conta identificada, como
+  hash curto do e-mail. O motivo digitado em bloqueios de horário e os textos das Configurações também não entram.
+- **Não existem no site** (por isso não há aba nem registro): **Entrada/Saída** (check-in/check-out) e **remarcação**.
+  Mudar a situação de uma reserva (concluída, falta...) aparece em "Marcação".
+- **Limite do histórico:** o registro começa quando a migração é aplicada. Antes disso só havia linhas JSON no console
+  (`securityLog`), que não foram migradas; nada foi reconstruído a partir de dados antigos (não dá para saber quem fez o
+  quê). A tabela **não tem expurgo automático** (a política de retenção é uma decisão sua).
+- **Ordem de publicação:** aplique `npm run db:deploy` **antes** de subir esta versão: a gravação do log faz parte da
+  transação da reserva, então a tabela precisa existir.
 
 ### Política de senha e tamanhos
 
@@ -386,7 +418,7 @@ uma decisão sua**:
 | Risco | Por quê | O que resolveria |
 |---|---|---|
 | **Pré-cadastro de e-mail alheio / oráculo de login.** Quem cadastra `fulano@x` com uma senha que conhece e tenta entrar descobre se o e-mail era novo (entrou) ou já existia (não entrou); se era novo, a conta fica com a senha de quem cadastrou e a dona real, ao se cadastrar depois, recebe "cadastro recebido" mas não consegue entrar. | O cadastro público não confirma o e-mail. A resposta da API é uniforme, mas o login serve de teste. Cada tentativa é limitada (5 por e-mail em 15 min). | Confirmação de e-mail antes de ativar a conta + "esqueci minha senha" (provedor de e-mail transacional). |
-| **Bloqueio de login usado contra outra pessoa.** 5 senhas erradas para um e-mail o bloqueiam por 15 min; repetir a cada 15 min mantém a conta (inclusive a da administradora) bloqueada. | Limite por e-mail é o que a política pede. | Chave (e-mail + IP) com limite maior só por e-mail, *backoff* progressivo ou desafio/CAPTCHA para a conta ADMIN; ou liberar a administradora por outro canal. |
+| **Bloqueio de login usado contra outra pessoa, SEM proxy confiável declarado.** 5 senhas erradas para um e-mail o bloqueiam por 15 min; repetir a cada 15 min mantém a conta (inclusive a da administradora) bloqueada. Com `TRUSTED_PROXY_HOPS` o bloqueio é por IP + e-mail e o efeito some (veja "Limite por IP e proxy"). | Sem origem confiável não há como distinguir a dona de um atacante. | Declarar o proxy; *backoff* progressivo ou desafio/CAPTCHA para a conta ADMIN; ou liberar a administradora por outro canal. |
 | **Limite por IP desativado por padrão** (sem `TRUSTED_PROXY_HOPS`) e e-mails com `+alias` contam como e-mails diferentes; clientes IPv6 são contados por endereço completo. | O cabeçalho de IP é forjável sem proxy confiável. Cadastros em massa gastam CPU (bcrypt) e enchem a tabela de usuários. | Declarar o proxy; limite global de cadastros; CAPTCHA; confirmação de e-mail. |
 | **Sem limite de reservas ativas por cliente.** Uma conta pode reservar todos os horários livres dos próximos 60 dias. Além disso, cada listagem de horários consulta o Google (cota da API), e como a consulta falha fechada, esgotar a cota bloqueia as reservas. | Regra de negócio (quantas reservas?) e cache. | Teto de reservas futuras por cliente (checado dentro do `runLocked`) e cache curto do `freebusy` por dia. |
 | **Reativação com agenda do Google desatualizada em corrida rara.** Se a situação muda entre a leitura inicial e a transação, a operação pede para tentar de novo (já tratado); se a exclusão do evento falhou antes (status "Falha ao sincronizar"), o evento fantasma pode aparecer como conflito da própria reserva. | Depende do comportamento real do Google. | Reconciliar pelo ID do evento ao reativar; validar com credenciais reais. |
@@ -404,10 +436,11 @@ O cancelamento pela cliente preserva o histórico (situação passa a "Cancelada
 
 ## PostgreSQL, backup e publicação
 
-- **Estratégia:** SQLite continua no dia a dia e nos testes; a variante PostgreSQL é **derivada** de `prisma/schema.prisma` (`npm run db:pg:schema`), então os modelos não divergem. As migrações do PostgreSQL ficam em `prisma/postgres/migrations` e incluem a restrição `Appointment_no_overlap` (`EXCLUDE USING gist (tsrange("startAt","endAt",'[)') WITH &&) WHERE status IN ('CONFIRMADA','CONCLUIDA')`), que **recusa sobreposição no próprio banco**, entre processos e instâncias; horários consecutivos são aceitos. Também há `CHECK` de situação, papel, intervalo e valores.
-- **Migração de dados:** `scripts/migrate-sqlite-to-postgres.ts` (checagem prévia que **para com relatório** se houver sobreposição, situação inválida, intervalo inválido, órfãos ou e-mails duplicados; cópia numa única transação; verificação por contagem e hash; nunca altera a origem). Ensaio com seus dados: `npm run db:rehearse-pg`.
+- **Estratégia:** PostgreSQL (Supabase) é o único banco: um schema (`prisma/schema.prisma`) e um conjunto de migrações (`prisma/migrations`). As migrações incluem a restrição `Appointment_no_overlap` (`EXCLUDE USING gist (tsrange("startAt","endAt",'[)') WITH &&) WHERE status IN ('CONFIRMADA','CONCLUIDA')`), que **recusa sobreposição no próprio banco**, entre processos e instâncias; horários consecutivos são aceitos. Também há `CHECK` de situação, papel, intervalo e valores.
+- **RLS (segurança em nível de linha):** o Supabase expõe o schema `public` por uma API REST acessível com a chave `anon`, que é pública. A migração `*_enable_rls` liga o RLS em todas as tabelas, **sem políticas**: a API pública não lê nem grava nada, e o app segue normal porque conecta como `postgres` (dono das tabelas, que ignora o RLS). Toda migração futura que criar tabela deve ligar o RLS também. Testado em `tests/db-constraints.test.ts`.
+- **Conexões:** o app usa o *Transaction pooler* (`DATABASE_URL`, `?pgbouncer=true`); migrations e backup usam o *Session pooler* ou *Direct* (`DIRECT_URL`).
 - **Backup:** `npm run db:backup` (diário; retenção 14 dias + 6 meses), `npm run db:restore` (recusa sobrescrever sem `--force`). Veja [docs/publicacao.md](docs/publicacao.md) para ordem das operações, verificações e plano de retorno.
-- **Testes:** `npm run test:pg` roda **toda a suíte** contra um PostgreSQL real e descartável (embutido, sem Docker) mais testes próprios do PostgreSQL (restrição direta no banco, 3 processos Node disputando o mesmo horário, migração).
+- **Testes:** `npm test` roda **toda a suíte** contra um PostgreSQL real e descartável (embutido, sem Docker), incluindo a restrição direta no banco, o RLS, 3 processos Node disputando o mesmo horário e a conferência de que `prisma/migrations` produz exatamente o `prisma/schema.prisma`.
 - **Testes de tela:** `npm run test:e2e` (Playwright com o Edge instalado; desktop e 390 px; capturas em `e2e/screenshots/`).
 - **Lint:** `npm run lint` (ESLint 9 + config do Next).
 

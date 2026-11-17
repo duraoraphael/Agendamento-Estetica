@@ -6,6 +6,8 @@ import { markPendingIfConnected, retryNow } from "./google-sync-queue";
 import { BLOCKING_STATUSES, STATUS_LABELS } from "./constants";
 import { statusUpdateSchema } from "./validation";
 import { canClientCancel, getBookingPolicy, limitReachedMessage } from "./policy";
+import { recordAuditTx } from "./audit-log";
+import { formatDateTimeBR } from "./format";
 import type { Prisma } from "@prisma/client";
 import type { AppointmentStatus } from "./types";
 
@@ -26,11 +28,10 @@ function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-/** Falhas transitórias que vale repetir: lock do SQLite ou deadlock/serialização do PostgreSQL. */
+/** Falhas transitórias que vale repetir: deadlock/serialização do PostgreSQL (e erro P2034 do Prisma). */
 function isTransientDbError(err: unknown): boolean {
   const m = errorText(err);
   return (
-    m.includes("SQLITE_BUSY") || m.includes("database is locked") ||
     m.includes("P2034") || m.includes("40001") || m.includes("40P01") || m.includes("deadlock detected") || m.includes("could not serialize")
   );
 }
@@ -49,12 +50,10 @@ const isBlocking = (status: string) => (BLOCKING_STATUSES as readonly string[]).
  * passam por aqui.
  *
  * Como funciona: a primeira instrução da transação é um UPDATE na linha única
- * `BookingLock`. Em SQLite, qualquer transação de escrita adquire um lock
- * exclusivo do banco já na primeira escrita — então, se duas operações tentarem
- * mexer na agenda ao mesmo tempo, a segunda fica bloqueada até a primeira
- * confirmar (COMMIT) e só então reavalia a disponibilidade, vendo o resultado
- * da primeira. No PostgreSQL, o UPDATE bloqueia a linha até o COMMIT (mesmo efeito), e além
- * disso a restrição EXCLUDE "Appointment_no_overlap" (prisma/postgres/migrations) é uma
+ * `BookingLock`. O UPDATE trava a linha até o COMMIT — então, se duas operações
+ * tentarem mexer na agenda ao mesmo tempo, a segunda fica bloqueada até a primeira
+ * confirmar e só então reavalia a disponibilidade, vendo o resultado da primeira.
+ * Além disso, a restrição EXCLUDE "Appointment_no_overlap" (prisma/migrations) é uma
  * segunda garantia, no próprio banco, contra qualquer sobreposição.
  *
  * Nada de rede acontece aqui dentro: consultas ao Google Agenda são feitas
@@ -127,7 +126,19 @@ export async function createBooking(params: { clientId: string; serviceId: strin
 
   const endAt = addMinutes(startAt, service.durationMinutes);
 
+  // Pré-validação LOCAL (só banco, sem rede, fora do lock): uma solicitação que já é recusada pelas regras
+  // locais não gasta a cota do Google nem é afetada por uma agenda externa fora do ar. Mesma ordem e mesmas
+  // regras da transação abaixo, que continua sendo a verificação definitiva (sob o BookingLock).
+  const { maxActiveFutureBookings: maxFuture } = getBookingPolicy();
+  if ((await countActiveFuture(prisma, clientId, new Date())) >= maxFuture) {
+    throw new BookingLimitError(limitReachedMessage(maxFuture));
+  }
+  if (!(await isSlotAvailable(startAt, service.durationMinutes, prisma))) {
+    throw new BookingConflictError(SLOT_TAKEN_MESSAGE);
+  }
+
   // Consulta externa ANTES da transação (se a agenda conectada estiver fora do ar, recusa com aviso).
+  // Só horários que passaram nas regras locais chegam aqui.
   const externalBusy = await fetchExternalBusy(startAt, endAt);
 
   const appointment = await runLocked(async (tx) => {
@@ -159,6 +170,15 @@ export async function createBooking(params: { clientId: string; serviceId: strin
     });
     // Fila durável: a reserva já nasce "pendente de sincronização" na mesma transação (veja google-sync-queue.ts).
     await markPendingIfConnected(tx, created.id);
+    // Auditoria na MESMA transação: só existe se a reserva foi confirmada. A chave por reserva impede linha duplicada.
+    await recordAuditTx(tx, {
+      action: "booking_created",
+      actorId: clientId,
+      targetType: "Appointment",
+      targetId: created.id,
+      detail: `${created.serviceName} · ${formatDateTimeBR(created.startAt)}`,
+      dedupeKey: `booking_created:${created.id}`,
+    });
     return created;
   });
 
@@ -175,7 +195,7 @@ export async function createBooking(params: { clientId: string; serviceId: strin
  *    Em conflito, a reserva permanece como estava.
  *  - Preço e duração históricos nunca são alterados.
  */
-export async function updateAppointmentStatus(appointmentId: string, status: AppointmentStatus) {
+export async function updateAppointmentStatus(appointmentId: string, status: AppointmentStatus, actorId: string | null = null) {
   const parsed = statusUpdateSchema.safeParse({ status });
   if (!parsed.success) {
     throw new BookingValidationError("Situação inválida.");
@@ -238,6 +258,18 @@ export async function updateAppointmentStatus(appointmentId: string, status: App
       include: { client: true },
     });
     await markPendingIfConnected(tx, updated.id);
+    // Só chega aqui quando a situação MUDOU de fato (o caso "já estava assim" retorna antes). O updatedAt torna a chave
+    // única por mudança: a mesma transição repetida depois (ex.: cancelar, reativar, cancelar) é outro evento.
+    await recordAuditTx(tx, {
+      action: "booking_status_changed",
+      actorId,
+      targetType: "Appointment",
+      targetId: updated.id,
+      // Só letras comuns do português (nada de setas ou símbolos): o log nunca deve poder derrubar a mudança por causa de
+      // um caractere que o banco não aceita, já que o registro e a mudança dividem a mesma transação.
+      detail: `De ${STATUS_LABELS[current.status] ?? current.status} para ${STATUS_LABELS[status] ?? status}`,
+      dedupeKey: `booking_status:${updated.id}:${status}:${updated.updatedAt.getTime()}`,
+    });
     return updated;
   });
 
@@ -271,6 +303,14 @@ export async function cancelOwnBooking(params: { appointmentId: string; clientId
     }
     const updated = await tx.appointment.update({ where: { id: appointmentId }, data: { status: "CANCELADA" }, include: { client: true } });
     await markPendingIfConnected(tx, updated.id);
+    await recordAuditTx(tx, {
+      action: "booking_canceled_by_client",
+      actorId: clientId,
+      targetType: "Appointment",
+      targetId: updated.id,
+      detail: `${updated.serviceName} · ${formatDateTimeBR(updated.startAt)}`,
+      dedupeKey: `booking_canceled:${updated.id}:${updated.updatedAt.getTime()}`,
+    });
     return updated;
   });
 

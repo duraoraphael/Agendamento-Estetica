@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import type { calendar_v3 } from "googleapis";
+import type { GoogleCalendarAccount } from "@prisma/client";
 import { prisma } from "./db";
 import { encryptSecret, decryptSecret } from "./crypto";
 import { GOOGLE_EVENTS_TIMEOUT_MS, GOOGLE_FREEBUSY_TIMEOUT_MS } from "./constants";
@@ -70,6 +71,23 @@ export async function getGoogleAuthUrl(state: string): Promise<string | null> {
   });
 }
 
+/** Outra administradora tentou conectar o Google enquanto já existe uma conta conectada (a conexão é única). */
+export class GoogleAccountConflictError extends Error {
+  constructor() {
+    super("Já existe uma conta do Google conectada por outra administradora. Desconecte-a antes de conectar outra.");
+    this.name = "GoogleAccountConflictError";
+  }
+}
+
+/**
+ * CONTRATO: o negócio tem UMA agenda do Google (uma conexão). As reservas não guardam a qual conta pertencem — o
+ * evento de qualquer reserva vai para a conta conectada —, então duas contas ao mesmo tempo seriam ambíguas.
+ * Por isso:
+ *  - conectar enquanto OUTRA administradora já tem conexão é recusado (GoogleAccountConflictError);
+ *  - a conta da própria administradora é substituída (reconectar);
+ *  - se mesmo assim existirem duas ou mais linhas (dados antigos, ou duas conexões simultâneas), NENHUMA é usada:
+ *    a disponibilidade e a sincronização falham fechadas até alguém desconectar em Configurações > Google Agenda.
+ */
 export async function handleGoogleOAuthCallback(adminUserId: string, code: string): Promise<void> {
   const client = await createOAuthClient();
   if (!client) throw new Error("Integração com o Google não está configurada.");
@@ -81,43 +99,101 @@ export async function handleGoogleOAuthCallback(adminUserId: string, code: strin
     );
   }
 
-  await prisma.googleCalendarAccount.upsert({
-    where: { adminUserId },
-    update: {
-      accessToken: encryptSecret(tokens.access_token),
-      refreshToken: encryptSecret(tokens.refresh_token),
-      expiryDate: new Date(tokens.expiry_date),
-      lastSyncError: null,
-    },
-    create: {
-      adminUserId,
-      accessToken: encryptSecret(tokens.access_token),
-      refreshToken: encryptSecret(tokens.refresh_token),
-      expiryDate: new Date(tokens.expiry_date),
-      calendarId: "primary",
-    },
-  });
-}
+  const accessToken = encryptSecret(tokens.access_token);
+  const refreshToken = encryptSecret(tokens.refresh_token);
+  const expiryDate = new Date(tokens.expiry_date);
 
-export async function disconnectGoogleCalendar(adminUserId: string): Promise<void> {
-  await prisma.googleCalendarAccount.deleteMany({ where: { adminUserId } });
+  // Checagem e gravação na mesma transação: no PostgreSQL o pior caso (duas
+  // conexões simultâneas) deixa duas linhas, que a leitura abaixo trata como ambíguas (falha fechada).
+  await prisma.$transaction(async (tx) => {
+    const other = await tx.googleCalendarAccount.findFirst({ where: { adminUserId: { not: adminUserId } }, select: { id: true } });
+    if (other) throw new GoogleAccountConflictError();
+    await tx.googleCalendarAccount.upsert({
+      where: { adminUserId },
+      update: { accessToken, refreshToken, expiryDate, lastSyncError: null },
+      create: { adminUserId, accessToken, refreshToken, expiryDate, calendarId: "primary" },
+    });
+  });
   clearFreeBusyCache();
 }
 
-/** Única conta do Google conectada (o negócio tem uma administradora/agenda). */
-async function getConnectedAccount(db: Db) {
-  return db.googleCalendarAccount.findFirst();
+/**
+ * Desconecta o Google. Sem argumento remove TODAS as conexões (a conexão é única e qualquer administradora pode
+ * desfazê-la; é também como se resolve uma ambiguidade). Com `adminUserId`, só a daquela administradora.
+ */
+export async function disconnectGoogleCalendar(adminUserId?: string): Promise<void> {
+  await prisma.googleCalendarAccount.deleteMany({ where: adminUserId ? { adminUserId } : {} });
+  clearFreeBusyCache();
 }
 
+type AccountRow = GoogleCalendarAccount;
+type AccountResolution = { status: "none" } | { status: "ok"; account: AccountRow } | { status: "ambiguous"; count: number };
+
+/** A conta do Google conectada: nenhuma, exatamente uma, ou ambígua (mais de uma linha — nunca escolhe uma "qualquer"). */
+async function resolveConnectedAccount(db: Db): Promise<AccountResolution> {
+  const rows = await db.googleCalendarAccount.findMany({ orderBy: [{ connectedAt: "asc" }, { id: "asc" }], take: 2 });
+  if (rows.length === 0) return { status: "none" };
+  if (rows.length > 1) return { status: "ambiguous", count: rows.length };
+  return { status: "ok", account: rows[0] };
+}
+
+const AMBIGUOUS_ACCOUNT_MESSAGE =
+  "Há mais de uma conta do Google conectada. Em Configurações > Google Agenda, desconecte e conecte novamente.";
+
+/** Há conexão registrada? Verdadeiro também quando ambígua: quem consulta a agenda deve falhar fechado, não ignorá-la. */
 export async function isGoogleCalendarConnected(db: Db = prisma): Promise<boolean> {
   if (!isGoogleConfigured() && !calendarFactoryOverride && !isMockCalendarEnabled()) return false;
-  const account = await getConnectedAccount(db);
-  return Boolean(account);
+  return (await resolveConnectedAccount(db)).status !== "none";
 }
 
-type ConnectedAccount = NonNullable<Awaited<ReturnType<typeof getConnectedAccount>>>;
+/** Conta única, ou null se não há conexão. Com mais de uma linha, falha fechada (CalendarUnavailableError). */
+async function getConnectedAccount(db: Db): Promise<AccountRow | null> {
+  const resolved = await resolveConnectedAccount(db);
+  if (resolved.status === "ambiguous") {
+    console.error(`Google Agenda: ${resolved.count} contas conectadas; nenhuma será usada até haver uma só.`);
+    throw new CalendarUnavailableError();
+  }
+  return resolved.status === "ok" ? resolved.account : null;
+}
 
-async function getAuthorizedClient(account: { accessToken: string; refreshToken: string; expiryDate: Date; adminUserId: string }) {
+type ConnectedAccount = AccountRow;
+
+type RefreshedTokens = { access_token?: string | null; refresh_token?: string | null; expiry_date?: number | null };
+
+/** Resumo de falha de gravação SEM a mensagem: erros do Prisma podem trazer os valores (tokens cifrados) da consulta. */
+function persistenceErrorSummary(err: unknown): string {
+  const e = err as { name?: unknown; code?: unknown };
+  return `${typeof e?.name === "string" ? e.name : "Error"}${typeof e?.code === "string" ? ` (${e.code})` : ""}`;
+}
+
+/**
+ * Grava na conexão `accountId` os tokens que o Google acabou de emitir (evento "tokens" do cliente OAuth).
+ *  - `refresh_token` só vem quando o Google o rotaciona: então é gravado (cifrado); sem ele, o guardado é mantido.
+ *  - `access_token`/`expiry_date` só avançam: se outra renovação simultânea (outro cliente OAuth da mesma conta) já
+ *    gravou um token que vale por mais tempo, o evento atrasado não o sobrescreve.
+ *  - Falha de gravação nunca derruba a chamada em andamento (o cliente já tem os tokens em memória) e nunca registra
+ *    token algum: o próximo uso relê o banco.
+ */
+export async function persistRefreshedTokens(accountId: string, tokens: RefreshedTokens, db: Db = prisma): Promise<void> {
+  try {
+    if (tokens.refresh_token) {
+      await db.googleCalendarAccount.updateMany({ where: { id: accountId }, data: { refreshToken: encryptSecret(tokens.refresh_token) } });
+    }
+    if (tokens.access_token || tokens.expiry_date) {
+      const data: { accessToken?: string; expiryDate?: Date } = {};
+      if (tokens.access_token) data.accessToken = encryptSecret(tokens.access_token);
+      if (tokens.expiry_date) data.expiryDate = new Date(tokens.expiry_date);
+      await db.googleCalendarAccount.updateMany({
+        where: { id: accountId, ...(data.expiryDate ? { expiryDate: { lte: data.expiryDate } } : {}) },
+        data,
+      });
+    }
+  } catch (err) {
+    console.error("Falha ao gravar os tokens renovados do Google Agenda:", persistenceErrorSummary(err));
+  }
+}
+
+async function getAuthorizedClient(account: { id: string; accessToken: string; refreshToken: string; expiryDate: Date }) {
   const client = await createOAuthClient();
   if (!client) return null;
 
@@ -127,14 +203,9 @@ async function getAuthorizedClient(account: { accessToken: string; refreshToken:
     expiry_date: account.expiryDate.getTime(),
   });
 
-  // Renova o access token quando necessário e persiste o novo valor.
-  client.on("tokens", async (tokens) => {
-    const data: Record<string, unknown> = {};
-    if (tokens.access_token) data.accessToken = encryptSecret(tokens.access_token);
-    if (tokens.expiry_date) data.expiryDate = new Date(tokens.expiry_date);
-    if (Object.keys(data).length > 0) {
-      await prisma.googleCalendarAccount.update({ where: { adminUserId: account.adminUserId }, data }).catch(() => {});
-    }
+  // Renova o access token quando necessário e persiste o que o Google emitiu (inclusive um refresh token rotacionado).
+  client.on("tokens", (tokens) => {
+    void persistRefreshedTokens(account.id, tokens);
   });
 
   return client;
@@ -271,7 +342,14 @@ function errorCode(err: unknown): number | undefined {
  *  - em caso de erro, marca ERRO no banco para nova tentativa manual.
  */
 async function syncOnce(appointment: AppointmentForSync): Promise<void> {
-  const account = await getConnectedAccount(prisma);
+  let account: AccountRow | null;
+  try {
+    account = await getConnectedAccount(prisma);
+  } catch (err) {
+    // Conexão ambígua (mais de uma conta): não escolhe uma por engano; registra ERRO na fila para o painel mostrar.
+    await recordSyncFailure(appointment, err instanceof CalendarUnavailableError ? new Error(AMBIGUOUS_ACCOUNT_MESSAGE) : err);
+    return;
+  }
   if (!account) {
     await prisma.appointment.update({
       where: { id: appointment.id },
@@ -354,20 +432,24 @@ async function syncOnce(appointment: AppointmentForSync): Promise<void> {
       data: { googleSyncStatus: "SINCRONIZADO", googleSyncError: null, googleEventId: eventId, googleSyncAttempts: 0, googleSyncNextAt: null },
     });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Erro desconhecido ao sincronizar com o Google Agenda.";
-    console.error("Falha ao sincronizar reserva com o Google Agenda:", safeErrorSummary(err));
-    const attempts = (appointment.googleSyncAttempts ?? 0) + 1;
-    await prisma.appointment.update({
-      where: { id: appointment.id },
-      data: {
-        googleSyncStatus: "ERRO",
-        googleSyncError: message.slice(0, 500),
-        // Fila durável: a falha fica registrada no banco com o horário da próxima tentativa automática.
-        googleSyncAttempts: attempts,
-        googleSyncNextAt: nextSyncAttemptAt(attempts),
-      },
-    });
+    await recordSyncFailure(appointment, err);
   }
+}
+
+/** Registra a falha de sincronização na fila durável: ERRO, mensagem e horário da próxima tentativa automática. */
+async function recordSyncFailure(appointment: AppointmentForSync, err: unknown): Promise<void> {
+  const message = err instanceof Error ? err.message : "Erro desconhecido ao sincronizar com o Google Agenda.";
+  console.error("Falha ao sincronizar reserva com o Google Agenda:", safeErrorSummary(err));
+  const attempts = (appointment.googleSyncAttempts ?? 0) + 1;
+  await prisma.appointment.update({
+    where: { id: appointment.id },
+    data: {
+      googleSyncStatus: "ERRO",
+      googleSyncError: message.slice(0, 500),
+      googleSyncAttempts: attempts,
+      googleSyncNextAt: nextSyncAttemptAt(attempts),
+    },
+  });
 }
 
 /** Resumo de erro SEM o corpo da requisição: erros do cliente HTTP do Google carregam o evento (nome e celular da cliente). */

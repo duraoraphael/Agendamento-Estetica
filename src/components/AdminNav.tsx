@@ -14,6 +14,7 @@ const LINKS = [
   { href: "/admin/horarios", label: "Horários" },
   { href: "/admin/configuracoes", label: "Configurações" },
   { href: "/admin/configuracoes/google", label: "Google Agenda" },
+  { href: "/admin/logs", label: "Logs" },
 ];
 
 export function AdminNav({ adminName, newCount }: { adminName: string; newCount: number }) {

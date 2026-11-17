@@ -1,5 +1,4 @@
-// SQLite (via Prisma) não suporta enums nativos, então os campos de
-// "enum" dos modelos são strings no banco. Estes tipos garantem a
+// Os campos de "enum" dos modelos são strings no banco (validadas aqui e por CHECK nas migrações). Estes tipos garantem a
 // tipagem correta no restante da aplicação.
 
 export type Role = "CLIENTE" | "ADMIN";

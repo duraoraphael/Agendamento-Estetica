@@ -6,11 +6,12 @@ import { prisma } from "@/lib/db";
 import { businessHoursSchema, blockedPeriodSchema, idSchema, isValidTime, formatZodError } from "@/lib/validation";
 import { zonedToUtc } from "@/lib/format";
 import { isValidDateKey } from "@/lib/date-keys";
+import { recordAuditTx } from "@/lib/audit-log";
 
 export type HorariosFormState = { errors: Record<string, string> } | { ok: true } | null;
 
 export async function saveBusinessHoursAction(_prev: HorariosFormState, formData: FormData): Promise<HorariosFormState> {
-  await requireAdmin();
+  const admin = await requireAdmin();
 
   const errors: Record<string, string> = {};
   const valid: { day: number; data: NonNullable<ReturnType<typeof businessHoursSchema.safeParse>["data"]> }[] = [];
@@ -39,9 +40,10 @@ export async function saveBusinessHoursAction(_prev: HorariosFormState, formData
     return { errors };
   }
 
-  await prisma.$transaction(
-    valid.map(({ day, data }) =>
-      prisma.businessHours.upsert({
+  // Os 7 dias e o registro de auditoria entram juntos: tudo ou nada.
+  await prisma.$transaction(async (tx) => {
+    for (const { day, data } of valid) {
+      await tx.businessHours.upsert({
         where: { dayOfWeek: day },
         update: {
           active: data.active,
@@ -58,16 +60,18 @@ export async function saveBusinessHoursAction(_prev: HorariosFormState, formData
           breakStart: data.breakStart || null,
           breakEnd: data.breakEnd || null,
         },
-      })
-    )
-  );
+      });
+    }
+    const activeDays = valid.filter(({ data }) => data.active).length;
+    await recordAuditTx(tx, { action: "business_hours_saved", actorId: admin.id, targetType: "BusinessHours", detail: `${activeDays} dia(s) com atendimento` });
+  });
 
   revalidatePath("/admin/horarios");
   return { ok: true };
 }
 
 export async function addBlockedPeriodAction(_prev: HorariosFormState, formData: FormData): Promise<HorariosFormState> {
-  await requireAdmin();
+  const admin = await requireAdmin();
 
   const dateStr = formData.get("date")?.toString() ?? "";
   const startTime = formData.get("startTime")?.toString() ?? "";
@@ -98,8 +102,18 @@ export async function addBlockedPeriodAction(_prev: HorariosFormState, formData:
     return { errors: formatZodError(parsed.error) };
   }
 
-  await prisma.blockedPeriod.create({
-    data: { startAt, endAt, reason: parsed.data.reason || null },
+  // O motivo (texto livre) NÃO vai para o log; só a data e a faixa de horas.
+  await prisma.$transaction(async (tx) => {
+    const created = await tx.blockedPeriod.create({
+      data: { startAt, endAt, reason: parsed.data.reason || null },
+    });
+    await recordAuditTx(tx, {
+      action: "blocked_period_created",
+      actorId: admin.id,
+      targetType: "BlockedPeriod",
+      targetId: created.id,
+      detail: `${dateStr} das ${startTime} às ${endTime}`,
+    });
   });
 
   revalidatePath("/admin/horarios");
@@ -107,8 +121,13 @@ export async function addBlockedPeriodAction(_prev: HorariosFormState, formData:
 }
 
 export async function deleteBlockedPeriodAction(id: string) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   if (!idSchema.safeParse(id).success) return;
-  await prisma.blockedPeriod.deleteMany({ where: { id } });
+  await prisma.$transaction(async (tx) => {
+    const removed = await tx.blockedPeriod.deleteMany({ where: { id } });
+    if (removed.count > 0) {
+      await recordAuditTx(tx, { action: "blocked_period_deleted", actorId: admin.id, targetType: "BlockedPeriod", targetId: id });
+    }
+  });
   revalidatePath("/admin/horarios");
 }

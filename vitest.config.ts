@@ -1,14 +1,17 @@
 import { defineConfig } from "vitest/config";
 import path from "node:path";
+import { PG_TEST_URL } from "./tests/pg-env";
 
+// Os testes rodam contra um PostgreSQL REAL embutido e descartável (veja tests/global-setup.ts), nunca contra o
+// Supabase: a DATABASE_URL abaixo sobrepõe a do .env. e2e/ roda com `npm run test:e2e` (Playwright).
 export default defineConfig({
   test: {
     environment: "node",
-    // Só a suíte SQLite. tests-pg/ roda com `npm run test:pg` (PostgreSQL) e e2e/ com `npm run test:e2e` (Playwright).
     include: ["tests/**/*.test.ts"],
     globalSetup: ["./tests/global-setup.ts"],
     env: {
-      DATABASE_URL: "file:./test.db",
+      DATABASE_URL: PG_TEST_URL,
+      DIRECT_URL: PG_TEST_URL,
       TOKEN_ENCRYPTION_KEY: "hTIcu8KsnQFn//xNql8gZiD/e6BWkekeGHF696BsgCE=",
       NEXTAUTH_SECRET: "test-secret-não-use-em-producao",
       NEXTAUTH_URL: "http://localhost:3000",
@@ -16,8 +19,8 @@ export default defineConfig({
       GOOGLE_CLIENT_SECRET: "",
       GOOGLE_REDIRECT_URI: "",
     },
-    testTimeout: 20000,
-    hookTimeout: 30000,
+    testTimeout: 60000,
+    hookTimeout: 120000,
     fileParallelism: false,
   },
   resolve: {

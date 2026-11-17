@@ -5,11 +5,12 @@ import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { serviceSchema, idSchema, formatZodError } from "@/lib/validation";
+import { recordAuditTx } from "@/lib/audit-log";
 
 export type ServiceFormState = { errors: Record<string, string> } | null;
 
 export async function upsertServiceAction(_prevState: ServiceFormState, formData: FormData): Promise<ServiceFormState> {
-  await requireAdmin();
+  const admin = await requireAdmin();
 
   const id = formData.get("id")?.toString();
   // Valor digitado em reais (ex: "40,00") é convertido para centavos aqui.
@@ -35,9 +36,16 @@ export async function upsertServiceAction(_prevState: ServiceFormState, formData
     if (!idSchema.safeParse(id).success) return { errors: { _form: "Serviço inválido." } };
     const exists = await prisma.service.findUnique({ where: { id }, select: { id: true } });
     if (!exists) return { errors: { _form: "Serviço não encontrado." } };
-    await prisma.service.update({ where: { id }, data: parsed.data });
+    // Mudança e registro de auditoria na MESMA transação: o log só existe se a alteração foi confirmada.
+    await prisma.$transaction(async (tx) => {
+      await tx.service.update({ where: { id }, data: parsed.data });
+      await recordAuditTx(tx, { action: "service_updated", actorId: admin.id, targetType: "Service", targetId: id, detail: parsed.data.name });
+    });
   } else {
-    await prisma.service.create({ data: parsed.data });
+    await prisma.$transaction(async (tx) => {
+      const created = await tx.service.create({ data: parsed.data });
+      await recordAuditTx(tx, { action: "service_created", actorId: admin.id, targetType: "Service", targetId: created.id, detail: created.name });
+    });
   }
 
   revalidatePath("/admin/servicos");
@@ -45,8 +53,13 @@ export async function upsertServiceAction(_prevState: ServiceFormState, formData
 }
 
 export async function toggleServiceActiveAction(id: string, active: boolean) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   if (!idSchema.safeParse(id).success) return;
-  await prisma.service.updateMany({ where: { id }, data: { active: Boolean(active) } });
+  await prisma.$transaction(async (tx) => {
+    const changed = await tx.service.updateMany({ where: { id }, data: { active: Boolean(active) } });
+    if (changed.count > 0) {
+      await recordAuditTx(tx, { action: "service_toggled", actorId: admin.id, targetType: "Service", targetId: id, detail: active ? "Ativado" : "Desativado" });
+    }
+  });
   revalidatePath("/admin/servicos");
 }
