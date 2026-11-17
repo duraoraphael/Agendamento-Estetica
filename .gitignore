@@ -45,3 +45,7 @@ playwright-report/
 *.key
 *.pem
 secrets/
+
+# ECC: repositório de terceiros (tem o próprio .git). Não faz parte deste projeto; como ponteiro de submódulo sem
+# .gitmodules ele quebrava `git submodule` e os commits.
+ECC/
