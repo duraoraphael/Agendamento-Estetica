@@ -6,8 +6,11 @@ import { requireAdmin } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { serviceSchema, idSchema, formatZodError } from "@/lib/validation";
 import { recordAuditTx } from "@/lib/audit-log";
+import { hitLimit, limitKey } from "@/lib/rate-limit";
+import { RATE_LIMITS } from "@/lib/constants";
+import { deleteService, ServiceDeleteError } from "@/lib/service-images";
 
-export type ServiceFormState = { errors: Record<string, string> } | null;
+export type ServiceFormState = { errors: Record<string, string>; createdId?: string } | null;
 
 export async function upsertServiceAction(_prevState: ServiceFormState, formData: FormData): Promise<ServiceFormState> {
   const admin = await requireAdmin();
@@ -42,14 +45,52 @@ export async function upsertServiceAction(_prevState: ServiceFormState, formData
       await recordAuditTx(tx, { action: "service_updated", actorId: admin.id, targetType: "Service", targetId: id, detail: parsed.data.name });
     });
   } else {
-    await prisma.$transaction(async (tx) => {
+    const createdId = await prisma.$transaction(async (tx) => {
       const created = await tx.service.create({ data: parsed.data });
       await recordAuditTx(tx, { action: "service_created", actorId: admin.id, targetType: "Service", targetId: created.id, detail: created.name });
+      return created.id;
     });
+    revalidatePath("/admin/servicos");
+    // Serviço novo: NÃO redireciona. A tela envia as fotos escolhidas agora que o ID existe e só então navega
+    // (se alguma foto falhar, o serviço continua criado e a tela diz quais fotos não subiram).
+    return { errors: {}, createdId };
   }
 
   revalidatePath("/admin/servicos");
   redirect("/admin/servicos");
+}
+
+export type DeleteServiceResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Exclui um serviço que nunca foi reservado (fotos incluídas). Com reservas no histórico a exclusão é recusada: o
+ * histórico e o faturamento dependem do serviço, e a saída é "Desativar". A regra vive em `deleteService` (servidor).
+ */
+export async function deleteServiceAction(id: string): Promise<DeleteServiceResult> {
+  const admin = await requireAdmin();
+  if (!idSchema.safeParse(id).success) return { ok: false, error: "Serviço inválido." };
+
+  const limit = await hitLimit(limitKey("service-delete-admin", admin.id), RATE_LIMITS.settingsPerMinute, 60_000);
+  if (limit.blocked) return { ok: false, error: "Muitas alterações seguidas. Aguarde um instante e tente de novo." };
+
+  try {
+    await deleteService({ serviceId: id, adminId: admin.id });
+  } catch (err) {
+    if (err instanceof ServiceDeleteError) {
+      if (err.code === "NOT_FOUND") return { ok: false, error: "Serviço não encontrado. Ele já pode ter sido excluído." };
+      const n = err.appointmentCount;
+      const quantos = n === 0 ? "agendamentos" : n === 1 ? "1 agendamento" : `${n} agendamentos`;
+      return {
+        ok: false,
+        error: `Este serviço tem ${quantos} no histórico e não pode ser excluído, para não apagar o histórico e o faturamento. Use "Desativar" para escondê-lo das clientes.`,
+      };
+    }
+    console.error("Falha inesperada ao excluir serviço:", (err as { name?: string })?.name ?? "Error");
+    return { ok: false, error: "Não foi possível excluir o serviço. Tente novamente." };
+  }
+
+  for (const path of ["/", "/servicos", "/agendar", "/admin/servicos"]) revalidatePath(path);
+  return { ok: true };
 }
 
 export async function toggleServiceActiveAction(id: string, active: boolean) {

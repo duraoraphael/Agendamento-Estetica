@@ -36,9 +36,35 @@ const securityHeaders = [
   ...(isHttps ? [{ key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" }] : []),
 ];
 
+// Fotos dos serviços: ficam no Supabase Storage (bucket público `service-images`). O `next/image` só otimiza imagens
+// de origens autorizadas: aqui entra SOMENTE o host exato do projeto (SUPABASE_URL) e SOMENTE o caminho público desse
+// bucket. Sem curingas de domínio. O navegador nunca fala com o Supabase: ele pede `/_next/image?url=...` ao próprio
+// site (por isso o `img-src 'self'` do CSP continua suficiente) e o servidor busca a foto.
+function serviceImageRemotePatterns() {
+  try {
+    const url = new URL(process.env.SUPABASE_URL ?? "");
+    if (url.protocol !== "https:" && url.hostname !== "127.0.0.1" && url.hostname !== "localhost") return [];
+    return [
+      {
+        protocol: url.protocol.replace(":", ""),
+        hostname: url.hostname,
+        ...(url.port ? { port: url.port } : {}),
+        pathname: "/storage/v1/object/public/service-images/**",
+      },
+    ];
+  } catch {
+    return []; // Storage ainda não configurado: o site usa os placeholders.
+  }
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  images: {
+    remotePatterns: serviceImageRemotePatterns(),
+    // Os caminhos são aleatórios e imutáveis: o otimizador pode guardar a versão processada por 1 ano.
+    minimumCacheTTL: 31536000,
+  },
   // Remove o cabeçalho X-Powered-By.
   poweredByHeader: false,
   // Permite rodar um servidor de teste isolado (NEXT_DIST_DIR=.next-audit) sem

@@ -66,7 +66,20 @@ export const RATE_LIMITS = {
   nextDayLookupsPerMinute: 42,
   // Gravações das Configurações do site por administradora por minuto (inclui upload de logo).
   settingsPerMinute: 20,
+  // Envio, ordem, texto alternativo e remoção de fotos de serviço, por administradora por minuto. Cada envio gasta CPU
+  // (decodifica e reduz a imagem) e uma chamada ao Storage; 30 sobra para subir as 6 fotos de vários serviços seguidos.
+  serviceImageWritesPerMinute: 30,
   // Criar ou cancelar reservas, por cliente por minuto (soma dos dois). Sem isso, um laço "reservar e cancelar" encheria a
   // tabela, a fila do Google e a trilha de auditoria. 10 sobra para o uso humano (inclusive tentar outro horário).
   bookingWritesPerMinute: 10,
+  // Recuperação de senha (janela de 15 min): pedidos por e-mail normalizado / por IP (este só com proxy confiável) e
+  // tentativas de usar um link (por IP e por link), que protegem o custo do bcrypt e barram tentativa de adivinhar tokens.
+  passwordResetEmail: 3,
+  passwordResetIp: 10,
+  passwordResetRedeemIp: 10,
+  passwordResetRedeemToken: 10,
+  // Troca de senha logada (exige a senha atual): tentativas por conta.
+  changePassword: 5,
+  // Gravações da conta da cliente (veículos e perfil) por cliente por minuto.
+  accountWritesPerMinute: 20,
 } as const;

@@ -1,6 +1,6 @@
 // Processo filho: tenta criar UMA reserva e imprime o resultado em JSON. Usado para provar a
 // garantia entre PROCESSOS Node independentes (cada um com seu próprio pool de conexões).
-import { createBooking } from "@/lib/booking";
+import { createBooking } from "../helpers";
 import { prisma } from "@/lib/db";
 
 async function main() {

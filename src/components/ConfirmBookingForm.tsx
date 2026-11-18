@@ -4,7 +4,7 @@ import { useFormState, useFormStatus } from "react-dom";
 import Link from "next/link";
 import { confirmBookingAction, type ConfirmState } from "@/app/agendar/actions";
 import { Notice } from "@/components/ui";
-import { horarioUrl } from "@/lib/booking-urls";
+import { horarioUrl, veiculoUrl } from "@/lib/booking-urls";
 
 function SubmitButton() {
   const { pending } = useFormStatus();
@@ -15,13 +15,16 @@ function SubmitButton() {
   );
 }
 
-export function ConfirmBookingForm({ serviceId, startAtIso }: { serviceId: string; startAtIso: string }) {
+/** Etapa 4: confirma. Veículo e observações viajam como campos ocultos e são validados de novo no servidor. */
+export function ConfirmBookingForm({ serviceId, startAtIso, vehicleId, notes }: { serviceId: string; startAtIso: string; vehicleId: string; notes: string }) {
   const [state, formAction] = useFormState<ConfirmState, FormData>(confirmBookingAction, null);
 
   return (
     <form action={formAction} className="mt-6 space-y-3">
       <input type="hidden" name="serviceId" value={serviceId} />
       <input type="hidden" name="startAtIso" value={startAtIso} />
+      <input type="hidden" name="vehicleId" value={vehicleId} />
+      <input type="hidden" name="notes" value={notes} />
 
       {state?.error && (
         <Notice tone="error">
@@ -33,9 +36,14 @@ export function ConfirmBookingForm({ serviceId, startAtIso }: { serviceId: strin
       )}
 
       <SubmitButton />
-      <Link href={horarioUrl(serviceId)} className="btn-ghost w-full">
-        Voltar e escolher outro horário
-      </Link>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <Link href={veiculoUrl(serviceId, startAtIso)} className="btn-ghost w-full">
+          Voltar e trocar o veículo
+        </Link>
+        <Link href={horarioUrl(serviceId)} className="btn-ghost w-full">
+          Voltar e escolher outro horário
+        </Link>
+      </div>
     </form>
   );
 }

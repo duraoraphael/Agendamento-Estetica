@@ -16,7 +16,12 @@ export type SecurityEvent =
   | "cron_unauthorized"
   | "settings_changed"
   | "settings_rate_limited"
-  | "logo_rejected";
+  | "logo_rejected"
+  | "service_image_rate_limited"
+  | "service_image_rejected"
+  | "password_reset_blocked"
+  | "password_reset_redeem_blocked"
+  | "change_password_blocked";
 
 export function shortHash(value: string): string {
   return crypto.createHash("sha256").update(value.normalize("NFKC").trim().toLowerCase()).digest("hex").slice(0, 12);

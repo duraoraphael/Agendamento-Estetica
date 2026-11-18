@@ -5,6 +5,7 @@
 html {
   -webkit-text-size-adjust: 100%;
   scroll-behavior: smooth;
+  color-scheme: dark;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -20,13 +21,17 @@ html {
 }
 
 body {
-  @apply bg-cream font-sans text-plum antialiased;
+  @apply bg-ink font-sans text-fg antialiased;
 }
 
+/* Títulos: condensados, fortes e esportivos (Barlow Condensed). Caixa alta com acentos do português preservados. */
 h1,
-h2,
+h2 {
+  @apply font-display font-extrabold uppercase italic leading-[0.95] tracking-tight;
+  font-variant-numeric: lining-nums;
+}
 h3 {
-  @apply font-display;
+  @apply font-display font-bold uppercase leading-tight tracking-wide;
   font-variant-numeric: lining-nums;
 }
 
@@ -34,44 +39,57 @@ h3 {
   font-variant-numeric: lining-nums;
 }
 
+::selection {
+  background: #ffca05;
+  color: #090d10;
+}
+
 @layer components {
   /* ---------- Botões ---------- */
   .btn {
-    @apply inline-flex min-h-[44px] items-center justify-center gap-2 rounded-full px-6 py-3 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-wine focus-visible:ring-offset-2 focus-visible:ring-offset-cream disabled:cursor-not-allowed disabled:opacity-60;
+    @apply inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg px-6 py-3 text-sm font-bold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-ink disabled:cursor-not-allowed disabled:opacity-60;
   }
   .btn-primary {
-    @apply btn bg-wine text-white shadow-soft hover:bg-wine-dark active:bg-wine-darker;
+    @apply btn bg-brand text-ink hover:bg-brand-hover active:bg-brand-hover;
   }
   .btn-secondary {
-    @apply btn border border-wine/40 bg-transparent text-wine hover:bg-blush;
+    @apply btn border border-brand/60 bg-transparent text-brand hover:bg-brand/10;
   }
   .btn-ghost {
-    @apply btn px-3 text-plum-muted hover:bg-blush hover:text-plum;
+    @apply btn px-3 text-fg-muted hover:bg-surface-2 hover:text-fg;
   }
   .btn-danger {
-    @apply btn bg-status-danger text-white hover:opacity-90;
+    @apply btn bg-status-danger-solid text-white hover:opacity-90;
   }
 
   /* ---------- Superfícies ---------- */
   .card {
-    @apply rounded-2xl border border-blush-deep/50 bg-white p-5 shadow-soft;
+    @apply rounded-2xl border border-brand/45 bg-surface p-5 shadow-soft;
+  }
+  .card-plain {
+    @apply rounded-2xl border border-line bg-surface p-5 shadow-soft;
   }
   .card-interactive {
-    @apply card transition hover:-translate-y-0.5 hover:shadow-lift focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-wine focus-visible:ring-offset-2 focus-visible:ring-offset-cream;
+    @apply card transition hover:-translate-y-0.5 hover:shadow-lift focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-ink;
   }
 
   /* ---------- Formulários ---------- */
   .label {
-    @apply mb-1.5 block text-sm font-medium text-plum;
+    @apply mb-1.5 block text-sm font-semibold text-fg;
   }
   .input {
-    @apply block min-h-[44px] w-full rounded-xl border border-plum-line bg-white px-4 py-2.5 text-base text-plum placeholder:text-plum-muted/70 focus:border-wine focus:outline-none focus:ring-2 focus:ring-wine/30 aria-[invalid=true]:border-status-danger aria-[invalid=true]:ring-1 aria-[invalid=true]:ring-status-danger;
+    @apply block min-h-[44px] w-full rounded-lg border border-line-strong bg-fg px-4 py-2.5 text-base text-ink placeholder:text-ink/60 focus:border-brand focus:outline-none focus:ring-2 focus:ring-brand/60 aria-[invalid=true]:border-status-danger-solid aria-[invalid=true]:ring-2 aria-[invalid=true]:ring-status-danger-solid;
+  }
+  /* Altura igual para campos de texto, data e selects (o campo de data nativo é mais alto que os demais). */
+  input.input,
+  select.input {
+    @apply h-12 py-0;
   }
   .hint-text {
-    @apply mt-1.5 text-sm text-plum-muted;
+    @apply mt-1.5 text-sm text-fg-muted;
   }
   .error-text {
-    @apply mt-1.5 flex items-start gap-1.5 text-sm font-medium text-status-danger;
+    @apply mt-1.5 flex items-start gap-1.5 text-sm font-semibold text-status-danger;
   }
 
   /* ---------- Mensagens ---------- */
@@ -79,33 +97,41 @@ h3 {
     @apply flex items-start gap-3 rounded-xl border px-4 py-3 text-sm;
   }
   .notice-success {
-    @apply notice border-status-done/30 bg-status-done-bg text-status-done;
+    @apply notice border-status-confirmed/40 bg-status-confirmed-bg text-status-confirmed;
   }
   .notice-error {
-    @apply notice border-status-danger/30 bg-status-danger-bg text-status-danger;
+    @apply notice border-status-danger/40 bg-status-danger-bg text-status-danger;
   }
   .notice-warning {
-    @apply notice border-status-noshow/30 bg-status-noshow-bg text-status-noshow;
+    @apply notice border-status-noshow bg-status-noshow-bg font-semibold text-status-noshow;
   }
 
   /* ---------- Situação ---------- */
   .badge {
-    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold;
+    @apply inline-flex items-center gap-1.5 whitespace-nowrap rounded-md px-3 py-1 text-xs font-bold;
   }
 
   /* ---------- Tipografia ---------- */
   .eyebrow {
-    @apply text-xs font-semibold uppercase tracking-[0.18em] text-gold-deep;
+    @apply text-xs font-bold uppercase tracking-[0.18em] text-brand;
   }
   .page-title {
-    @apply font-display text-3xl font-semibold leading-tight text-plum sm:text-4xl;
+    @apply font-display text-4xl font-extrabold uppercase italic leading-[0.95] text-fg sm:text-5xl;
+  }
+  .accent {
+    @apply text-brand;
   }
   .link {
-    @apply font-semibold text-wine underline decoration-wine/30 underline-offset-4 hover:decoration-wine focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-wine;
+    @apply font-semibold text-brand underline decoration-brand/40 underline-offset-4 hover:decoration-brand focus-visible:rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand;
   }
 
-  /* Filete dourado decorativo */
-  .gold-rule {
-    @apply h-px w-16 bg-gradient-to-r from-gold to-transparent;
+  /* Filete amarelo decorativo (sob os títulos). */
+  .accent-rule {
+    @apply h-1 w-16 rounded-full bg-brand;
+  }
+
+  /* Esqueleto de carregamento (o bloco global de movimento reduzido já neutraliza a animação). */
+  .skeleton {
+    @apply animate-pulse rounded-lg bg-surface-2;
   }
 }

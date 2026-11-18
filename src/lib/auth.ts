@@ -27,11 +27,14 @@ declare module "next-auth" {
     user: {
       id: string;
       role: Role;
+      /** Versão da sessão com que o token foi emitido (compare com User.sessionVersion; veja session.ts). */
+      sessionVersion: number;
     } & DefaultSession["user"];
   }
   interface User {
     id: string;
     role: Role;
+    sessionVersion?: number;
   }
 }
 
@@ -39,6 +42,7 @@ declare module "next-auth/jwt" {
   interface JWT {
     id: string;
     role: Role;
+    sv?: number;
   }
 }
 
@@ -128,6 +132,7 @@ export const authOptions: AuthOptions = {
           name: user.name,
           email: user.email,
           role: user.role as Role,
+          sessionVersion: user.sessionVersion,
         };
       },
     }),
@@ -151,12 +156,16 @@ export const authOptions: AuthOptions = {
       if (user) {
         token.id = user.id;
         token.role = user.role as Role;
+        // Um login novo SEMPRE emite um token novo com a versão atual: depois de uma troca de senha, entrar de novo vale.
+        token.sv = user.sessionVersion ?? 0;
       }
       return token;
     },
     async session({ session, token }) {
       session.user.id = token.id;
       session.user.role = token.role;
+      // Tokens emitidos antes desta versão não têm `sv`: contam como 0 (igual ao padrão do banco), então ninguém é deslogado no deploy.
+      session.user.sessionVersion = token.sv ?? 0;
       return session;
     },
   },

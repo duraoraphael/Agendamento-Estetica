@@ -5,6 +5,8 @@ import { PG_TEST_URL } from "./tests/pg-env";
 // Os testes rodam contra um PostgreSQL REAL embutido e descartável (veja tests/global-setup.ts), nunca contra o
 // Supabase: a DATABASE_URL abaixo sobrepõe a do .env. e2e/ roda com `npm run test:e2e` (Playwright).
 export default defineConfig({
+  // O tsconfig usa `jsx: preserve` (padrão do Next); aqui o JSX dos componentes testados é compilado com o runtime novo.
+  esbuild: { jsx: "automatic" },
   test: {
     environment: "node",
     include: ["tests/**/*.test.ts"],

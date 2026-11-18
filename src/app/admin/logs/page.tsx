@@ -71,8 +71,8 @@ export default async function LogsPage({
   };
 
   const tabLink = (active: boolean) =>
-    `inline-flex min-h-[40px] items-center whitespace-nowrap rounded-full px-5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-wine ${
-      active ? "bg-wine text-white shadow-soft" : "text-plum-muted hover:bg-blush hover:text-plum"
+    `inline-flex min-h-[40px] items-center whitespace-nowrap rounded-full px-5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+      active ? "bg-brand text-ink shadow-soft" : "text-fg-muted hover:bg-surface-2 hover:text-fg"
     }`;
 
   return (
@@ -80,14 +80,14 @@ export default async function LogsPage({
       <div>
         <p className="eyebrow">Segurança</p>
         <h1 className="page-title mt-1">Logs</h1>
-        <p className="mt-2 max-w-2xl text-sm text-plum-muted">
+        <p className="mt-2 max-w-2xl text-sm text-fg-muted">
           Registro do que aconteceu no site, em ordem do mais recente para o mais antigo (horário de Brasília). Os registros são somente
           leitura. Tentativas repetidas de login recusado ou bloqueado aparecem agrupadas em uma linha por hora, com a quantidade.
         </p>
       </div>
 
       <nav aria-label="Categorias de log" className="overflow-x-auto">
-        <ul className="flex w-max gap-1 rounded-full border border-neutral-line bg-white p-1">
+        <ul className="flex w-max gap-1 rounded-full border border-line bg-surface p-1">
           {AUDIT_CATEGORIES.map((c) => (
             <li key={c}>
               <Link href={qs({ aba: c, pagina: "1" })} aria-current={c === filters.category ? "page" : undefined} className={tabLink(c === filters.category)}>
@@ -101,7 +101,7 @@ export default async function LogsPage({
       <form
         method="get"
         aria-label="Filtros"
-        className="grid grid-cols-1 gap-4 rounded-2xl border border-neutral-line bg-white p-5 shadow-soft sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_1.4fr_auto] lg:items-end"
+        className="grid grid-cols-1 gap-4 rounded-2xl border border-line bg-surface p-5 shadow-soft sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_1.4fr_auto] lg:items-end"
       >
         <input type="hidden" name="aba" value={filters.category} />
         <div>
@@ -163,10 +163,10 @@ export default async function LogsPage({
         </EmptyState>
       ) : (
         <>
-          <div className="overflow-x-auto rounded-2xl border border-neutral-line bg-white shadow-soft">
+          <div className="overflow-x-auto rounded-2xl border border-line bg-surface shadow-soft">
             <table className="w-full min-w-[56rem] text-left text-sm">
               <caption className="sr-only">Registros de {AUDIT_CATEGORY_LABELS[filters.category]}</caption>
-              <thead className="border-b border-neutral-line bg-neutral-page text-xs uppercase tracking-wide text-plum-muted">
+              <thead className="border-b border-line bg-ink text-xs uppercase tracking-wide text-fg-muted">
                 <tr>
                   <th scope="col" className="px-4 py-3 font-semibold">Data e hora</th>
                   <th scope="col" className="px-4 py-3 font-semibold">Ação</th>
@@ -176,26 +176,26 @@ export default async function LogsPage({
                   <th scope="col" className="px-4 py-3 font-semibold">Detalhes</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-neutral-line text-plum">
+              <tbody className="divide-y divide-line text-fg">
                 {listing.items.map((row) => (
                   <tr key={row.id} className="align-top">
                     <td className="whitespace-nowrap px-4 py-3">
                       {formatDateTimeBR(row.occurredAt)}
-                      {row.count > 1 && <span className="block text-xs text-plum-muted">desde {formatDateTimeBR(row.firstAt)}</span>}
+                      {row.count > 1 && <span className="block text-xs text-fg-muted">desde {formatDateTimeBR(row.firstAt)}</span>}
                     </td>
                     <td className="px-4 py-3 font-medium">
                       {auditActionLabel(row.action)}
-                      {row.count > 1 && <span className="ml-2 rounded-full bg-blush px-2 py-0.5 text-xs font-semibold text-wine">{row.count}×</span>}
+                      {row.count > 1 && <span className="ml-2 rounded-full bg-surface-2 px-2 py-0.5 text-xs font-semibold text-brand">{row.count}×</span>}
                     </td>
                     <td className="px-4 py-3">
                       <span
-                        className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${RESULT_CLASSES[row.result] ?? "bg-neutral-page text-plum-muted"}`}
+                        className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold ${RESULT_CLASSES[row.result] ?? "bg-ink text-fg-muted"}`}
                       >
                         {isAuditResult(row.result) ? AUDIT_RESULT_LABELS[row.result] : row.result}
                       </span>
                     </td>
                     <td className="px-4 py-3">{row.actor}</td>
-                    <td className="px-4 py-3 text-plum-muted">
+                    <td className="px-4 py-3 text-fg-muted">
                       {row.targetType ? (
                         <>
                           {TARGET_LABELS[row.targetType] ?? row.targetType}
@@ -205,7 +205,7 @@ export default async function LogsPage({
                         "—"
                       )}
                     </td>
-                    <td className="px-4 py-3 text-plum-muted">{row.detail ?? "—"}</td>
+                    <td className="px-4 py-3 text-fg-muted">{row.detail ?? "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -221,7 +221,7 @@ export default async function LogsPage({
               ) : (
                 <span aria-hidden="true" />
               )}
-              <p className="text-sm text-plum-muted" aria-live="polite">
+              <p className="text-sm text-fg-muted" aria-live="polite">
                 Página {listing.page} de {listing.pageCount} · {listing.total} registros
               </p>
               {listing.page < listing.pageCount ? (

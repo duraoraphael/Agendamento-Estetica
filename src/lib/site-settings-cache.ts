@@ -7,7 +7,7 @@ export const SITE_SETTINGS_TAG = "site-settings";
 /**
  * Configurações do site para páginas e layouts.
  *
- *  - Escopo: GLOBAL (nome, contatos e logo do estúdio são públicos; nada aqui é de usuário).
+ *  - Escopo: GLOBAL (nome, contatos e logo da empresa são públicos; nada aqui é de usuário).
  *  - Chave: fixa ("site-settings"); uma só linha no banco.
  *  - Invalidação: `invalidateSiteSettings()` na ação de salvar (revalidateTag), então a alteração
  *    aparece na hora; sem isso, no máximo 5 minutos (rede de segurança).

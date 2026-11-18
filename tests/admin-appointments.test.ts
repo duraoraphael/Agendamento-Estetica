@@ -73,7 +73,7 @@ describe("Listagem do painel: consulta paginada no banco (achado 10)", () => {
       data: rows.map((r) => ({
         clientId,
         serviceId,
-        serviceName: "Manicure",
+        serviceName: "Lavagem",
         priceCents: 4000,
         durationMinutes: 1,
         startAt: r.startAt,

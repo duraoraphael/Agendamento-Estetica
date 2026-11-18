@@ -39,8 +39,12 @@ export async function POST(request: Request) {
   }
 
   const parsed = signupSchema.safeParse(body);
-  if (!parsed.success) {
-    return NextResponse.json({ ok: false, errors: formatZodError(parsed.error) }, { status: 400 });
+  // Consentimento (LGPD) exigido também no servidor: a marcação na tela não basta, a requisição pode vir de outro lugar.
+  const consentGiven = (body as { consent?: unknown }).consent === true;
+  if (!parsed.success || !consentGiven) {
+    const errors: Record<string, string> = parsed.success ? {} : formatZodError(parsed.error);
+    if (!consentGiven) errors.consent = "Para criar a conta, é preciso concordar com o uso dos dados.";
+    return NextResponse.json({ ok: false, errors }, { status: 400 });
   }
 
   const { name, email, phone, password } = parsed.data;

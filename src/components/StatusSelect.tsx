@@ -43,12 +43,12 @@ export function StatusSelect({
       disabled={pending}
       aria-label={clientName ? `Situação do atendimento de ${clientName}` : "Situação do atendimento"}
       onChange={(e) => handleChange(e.target.value as AppointmentStatus)}
-      className={`min-h-[44px] w-full cursor-pointer rounded-full border-0 px-4 py-2 text-sm font-semibold ring-1 ring-inset ring-black/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-wine disabled:opacity-60 md:min-h-[40px] ${
+      className={`min-h-[44px] w-full cursor-pointer rounded-full border-0 px-4 py-2 text-sm font-semibold ring-1 ring-inset ring-black/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand disabled:opacity-60 md:min-h-[40px] ${
         STATUS_BADGE_CLASSES[value] ?? ""
       }`}
     >
       {OPTIONS.map((opt) => (
-        <option key={opt} value={opt} className="bg-white text-plum">
+        <option key={opt} value={opt} className="bg-surface text-fg">
           {STATUS_LABELS[opt]}
         </option>
       ))}

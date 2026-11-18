@@ -1,6 +1,7 @@
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { zonedToUtc, dateKeyInTz } from "@/lib/format";
+import { createBooking as createBookingCore } from "@/lib/booking";
 
 /**
  * resetDb() APAGA todas as tabelas. Só roda contra o PostgreSQL local e descartável dos testes (tests/pg-env.ts):
@@ -25,9 +26,12 @@ export async function resetDb() {
   await prisma.siteSettings.deleteMany();
   await prisma.siteLogo.deleteMany();
   await prisma.appointment.deleteMany();
+  await prisma.passwordResetToken.deleteMany();
+  await prisma.vehicle.deleteMany();
   await prisma.blockedPeriod.deleteMany();
   await prisma.googleCalendarAccount.deleteMany();
-  await prisma.service.deleteMany();
+  await prisma.storageCleanup.deleteMany();
+  await prisma.service.deleteMany(); // ServiceImage sai em cascata
   await prisma.businessHours.deleteMany();
   await prisma.user.deleteMany();
   await prisma.bookingLock.deleteMany();
@@ -49,6 +53,32 @@ let counter = 0;
 function unique(prefix: string) {
   counter += 1;
   return `${prefix}${Date.now()}${counter}`;
+}
+
+let plateCounter = 0;
+/** Placa válida e única por chamada (ex.: TST1A01, TST1A02...). */
+export function uniquePlate(): string {
+  plateCounter += 1;
+  return `TST${plateCounter % 10}A${String(Math.floor(plateCounter / 10) % 100).padStart(2, "0")}`;
+}
+
+/** Cria um veículo de teste para a cliente (placa única). */
+export async function createVehicleFor(userId: string, overrides: Partial<{ brand: string; model: string; plate: string }> = {}) {
+  return prisma.vehicle.create({
+    data: { userId, brand: overrides.brand ?? "Fiat", model: overrides.model ?? "Argo", plate: overrides.plate ?? uniquePlate() },
+  });
+}
+
+/**
+ * `createBooking` para os testes: o servidor EXIGE `vehicleId` (e que o veículo seja da cliente). Sem `vehicleId`, usa o
+ * primeiro veículo da cliente ou cria um. Os testes que verificam a exigência chamam `@/lib/booking` direto.
+ */
+export async function createBooking(params: { clientId: string; serviceId: string; startAt: Date; vehicleId?: string; notes?: string | null }) {
+  const vehicleId =
+    params.vehicleId ??
+    (await prisma.vehicle.findFirst({ where: { userId: params.clientId }, select: { id: true } }))?.id ??
+    (await createVehicleFor(params.clientId)).id;
+  return createBookingCore({ ...params, vehicleId });
 }
 
 export async function createClient(overrides: Partial<{ name: string; email: string; phone: string; password: string }> = {}) {

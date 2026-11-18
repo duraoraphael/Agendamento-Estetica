@@ -13,7 +13,7 @@ const SCOPES = ["https://www.googleapis.com/auth/calendar.events", "https://www.
 
 /** A agenda do Google está conectada, mas não foi possível consultá-la agora. */
 export class CalendarUnavailableError extends Error {
-  constructor(message = "Não foi possível verificar a agenda do estúdio agora.") {
+  constructor(message = "Não foi possível verificar a agenda da Garage Zero Zero agora.") {
     super(message);
     this.name = "CalendarUnavailableError";
   }
@@ -311,6 +311,11 @@ interface AppointmentForSync {
   googleEventId: string | null;
   googleSyncAttempts?: number;
   client: { name: string; phone: string };
+  // Veículo e observações (opcionais: reservas anteriores à Garage Zero Zero não têm). Vão só para a agenda da administração.
+  vehicleBrandSnapshot?: string | null;
+  vehicleModelSnapshot?: string | null;
+  vehiclePlateSnapshot?: string | null;
+  notes?: string | null;
 }
 
 /** Intervalos de nova tentativa automática (fila durável): 1 min, 5 min, 15 min, 1 h, 6 h. Depois disso, só manual. */
@@ -384,9 +389,18 @@ async function syncOnce(appointment: AppointmentForSync): Promise<void> {
     }
 
     const site = await loadSiteSettings(prisma).catch(() => null);
+    const vehicleModel = [appointment.vehicleBrandSnapshot, appointment.vehicleModelSnapshot].filter(Boolean).join(" ");
     const eventBody: calendar_v3.Schema$Event = {
-      summary: `${appointment.serviceName} — ${appointment.client.name}`,
-      description: `Cliente: ${appointment.client.name}\nCelular: ${appointment.client.phone}\nReferência: ${appointment.id}`,
+      summary: `${appointment.serviceName} — ${appointment.client.name}${vehicleModel ? ` (${vehicleModel})` : ""}`,
+      description: [
+        `Cliente: ${appointment.client.name}`,
+        `Celular: ${appointment.client.phone}`,
+        vehicleModel ? `Veículo: ${vehicleModel}${appointment.vehiclePlateSnapshot ? ` — placa ${appointment.vehiclePlateSnapshot}` : ""}` : null,
+        appointment.notes ? `Observações: ${appointment.notes}` : null,
+        `Referência: ${appointment.id}`,
+      ]
+        .filter(Boolean)
+        .join("\n"),
       ...(site?.address ? { location: site.address } : {}),
       start: { dateTime: appointment.startAt.toISOString(), timeZone: "America/Sao_Paulo" },
       end: { dateTime: appointment.endAt.toISOString(), timeZone: "America/Sao_Paulo" },
@@ -480,6 +494,10 @@ export async function syncAppointmentToGoogle(appointment: { id: string }): Prom
       googleEventId: fresh.googleEventId,
       googleSyncAttempts: fresh.googleSyncAttempts,
       client: { name: fresh.client.name, phone: fresh.client.phone },
+      vehicleBrandSnapshot: fresh.vehicleBrandSnapshot,
+      vehicleModelSnapshot: fresh.vehicleModelSnapshot,
+      vehiclePlateSnapshot: fresh.vehiclePlateSnapshot,
+      notes: fresh.notes,
     });
 
     clearFreeBusyCache();

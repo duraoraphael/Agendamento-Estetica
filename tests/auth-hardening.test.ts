@@ -29,6 +29,7 @@ const valid = {
   phone: "(11) 91234-5678",
   password: "senhaSegura123",
   confirmPassword: "senhaSegura123",
+  consent: true,
 };
 
 function authorizeFn() {
@@ -294,7 +295,7 @@ describe("Cadastro: resposta uniforme, limite e política de senha (achados 5 e 
 });
 
 describe("Validação de tamanhos e formatos (achado 7)", () => {
-  const base = { name: "Maria da Silva", email: "m@example.com", phone: "(11) 91234-5678", password: "SenhaBoa#2026", confirmPassword: "SenhaBoa#2026" };
+  const base = { name: "Maria da Silva", email: "m@example.com", phone: "(11) 91234-5678", password: "SenhaBoa#2026", confirmPassword: "SenhaBoa#2026", consent: true };
 
   it("senha: 72 bytes ASCII passa; 73 não; acentos contam em bytes (37 × 'é' = 74 bytes)", () => {
     expect(passwordSchema.safeParse("a1".repeat(36)).success).toBe(true); // 72 bytes
@@ -326,7 +327,7 @@ describe("Validação de tamanhos e formatos (achado 7)", () => {
   });
 
   it("serviço: preço e duração dentro de limites coerentes", () => {
-    const ok = { name: "Esmaltação", priceCents: 6000, durationMinutes: 60, active: true };
+    const ok = { name: "Lavagem simples", priceCents: 6000, durationMinutes: 60, active: true };
     expect(serviceSchema.safeParse(ok).success).toBe(true);
     expect(serviceSchema.safeParse({ ...ok, priceCents: 500_001 }).success).toBe(false);
     expect(serviceSchema.safeParse({ ...ok, durationMinutes: 481 }).success).toBe(false);
@@ -339,7 +340,11 @@ describe("Validação de tamanhos e formatos (achado 7)", () => {
     expect(statusUpdateSchema.safeParse({ status: "CONFIRMADA" }).success).toBe(true);
     expect(createBookingSchema.safeParse({ serviceId: "s1", startAtIso: "abc" }).success).toBe(false);
     expect(createBookingSchema.safeParse({ serviceId: "", startAtIso: "2026-12-01T13:00:00.000Z" }).success).toBe(false);
-    expect(createBookingSchema.safeParse({ serviceId: "s1", startAtIso: "2026-12-01T13:00:00.000Z" }).success).toBe(true);
+    expect(createBookingSchema.safeParse({ serviceId: "s1", startAtIso: "2026-12-01T13:00:00.000Z", vehicleId: "v1" }).success).toBe(true);
+    // Veículo é obrigatório em novas reservas, e as observações têm teto de 500 caracteres.
+    expect(createBookingSchema.safeParse({ serviceId: "s1", startAtIso: "2026-12-01T13:00:00.000Z" }).success).toBe(false);
+    expect(createBookingSchema.safeParse({ serviceId: "s1", startAtIso: "2026-12-01T13:00:00.000Z", vehicleId: "v1", notes: "x".repeat(501) }).success).toBe(false);
+    expect(createBookingSchema.safeParse({ serviceId: "s1", startAtIso: "2026-12-01T13:00:00.000Z", vehicleId: "v1", notes: "x".repeat(500) }).success).toBe(true);
   });
 });
 

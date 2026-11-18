@@ -5,7 +5,8 @@ import { signIn } from "next-auth/react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AuthShell } from "@/components/AuthShell";
-import { Field } from "@/components/ui";
+import { Field, Notice } from "@/components/ui";
+import { PasswordField } from "@/components/PasswordField";
 import { safeCallbackPath } from "@/lib/safe-redirect";
 
 function LoginForm() {
@@ -13,6 +14,9 @@ function LoginForm() {
   const searchParams = useSearchParams();
   // Só caminhos do próprio site (evita redirecionamento aberto via ?callbackUrl=https://...).
   const callbackUrl = safeCallbackPath(searchParams.get("callbackUrl"));
+  // A intenção (ex.: "agendar este serviço neste horário") acompanha a pessoa até o cadastro e de volta.
+  const carry = callbackUrl !== "/" ? `?callbackUrl=${encodeURIComponent(callbackUrl)}` : "";
+  const passwordChanged = searchParams.get("senha") === "alterada";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -48,32 +52,28 @@ function LoginForm() {
 
   return (
     <AuthShell
-      title="Entrar"
-      subtitle="Acesse sua conta para agendar um horário."
-      footer={
-        <>
-          Ainda não tem conta?{" "}
-          <Link href="/cadastro" className="link">
-            Criar conta
-          </Link>
-        </>
-      }
+      accent="Entrar"
+      subtitle="Acesse sua conta Garage Zero Zero."
+      photo="hero"
+      footer={null}
     >
       <form onSubmit={handleSubmit} className="space-y-5">
+        {passwordChanged && <Notice tone="success">Senha alterada. Entre com a nova senha.</Notice>}
         <Field
           id="email"
           label="E-mail"
           type="email"
           autoComplete="email"
+          placeholder="Seu e-mail"
           required
           value={email}
           onChange={(e) => setEmail(e.target.value)}
         />
-        <Field
+        <PasswordField
           id="password"
           label="Senha"
-          type="password"
           autoComplete="current-password"
+          placeholder="Sua senha"
           required
           value={password}
           onChange={(e) => setPassword(e.target.value)}
@@ -83,6 +83,15 @@ function LoginForm() {
         <button type="submit" disabled={loading} className="btn-primary w-full">
           {loading ? "Entrando..." : "Entrar"}
         </button>
+
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          <Link href="/recuperar-senha" className="link inline-flex min-h-[44px] items-center">
+            Esqueci minha senha
+          </Link>
+          <Link href={`/cadastro${carry}`} className="link inline-flex min-h-[44px] items-center">
+            Criar conta
+          </Link>
+        </div>
       </form>
     </AuthShell>
   );

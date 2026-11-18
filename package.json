@@ -1,5 +1,5 @@
 {
-  "name": "agendamento-manicure",
+  "name": "garage-zero-zero",
   "version": "1.0.0",
   "private": true,
   "scripts": {
@@ -16,6 +16,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "db:check-overlaps": "tsx scripts/check-overlaps.ts",
+    "db:migrate-services": "tsx scripts/migrate-manicure-services.ts",
+    "images:optimize": "node scripts/optimize-images.mjs",
+    "storage:setup": "tsx scripts/storage-setup.ts",
+    "storage:cleanup": "tsx scripts/storage-cleanup.ts",
     "db:backup": "tsx scripts/backup.ts",
     "db:restore": "tsx scripts/restore.ts",
     "test:e2e": "playwright test"
@@ -34,6 +38,7 @@
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "recharts": "2.13.3",
+    "sharp": "0.35.5",
     "zod": "4.6.7"
   },
   "devDependencies": {

@@ -3,7 +3,8 @@ import { resetDb, openAllWeek, createClient, createAdmin, createService, nextDay
 import { prisma } from "@/lib/db";
 import { authOptions, RATE_LIMITED_ERROR } from "@/lib/auth";
 import { POST as cadastroHandler } from "@/app/api/auth/cadastro/route";
-import { createBooking, cancelOwnBooking, updateAppointmentStatus, BookingConflictError } from "@/lib/booking";
+import { cancelOwnBooking, updateAppointmentStatus, BookingConflictError } from "@/lib/booking";
+import { createBooking } from "./helpers";
 import { recordAudit, recordAuditCoalesced, AUDIT_MAX_DISTINCT_ROWS_PER_WINDOW } from "@/lib/audit-log";
 import { listAuditLogs, parseAuditFilters, resolveAuditRange, AUDIT_MAX_PAGE_SIZE, AUDIT_MAX_RANGE_DAYS } from "@/lib/audit-log-read";
 import { shortHash } from "@/lib/security-log";
@@ -36,7 +37,7 @@ vi.mock("next/navigation", () => ({
 function postCadastro(body: unknown, headers: Record<string, string> = { "Content-Type": "application/json" }) {
   return cadastroHandler(new Request("http://localhost/api/auth/cadastro", { method: "POST", headers, body: JSON.stringify(body) }));
 }
-const signup = (email: string) => ({ name: "Maria da Silva", email, phone: "(11) 91234-5678", password: "senhaSegura123", confirmPassword: "senhaSegura123" });
+const signup = (email: string) => ({ name: "Maria da Silva", email, phone: "(11) 91234-5678", password: "senhaSegura123", confirmPassword: "senhaSegura123", consent: true });
 
 function authorizeFn() {
   const provider = authOptions.providers[0] as unknown as {
@@ -224,13 +225,13 @@ describe("Marcação: registro só no commit, sem duplicar", () => {
   it("criar, cancelar (cliente) e mudar situação (administradora) geram uma linha cada, com o autor certo", async () => {
     const client = await createClient();
     const admin = await createAdmin();
-    const service = await createService({ name: "Esmaltação especial" });
+    const service = await createService({ name: "Lavagem especial" });
     const appt = await createBooking({ clientId: client.id, serviceId: service.id, startAt: nextDayAt(10, 0, 3) });
 
     const created = await rowsOf("booking_created");
     expect(created).toHaveLength(1);
     expect(created[0]).toMatchObject({ category: "MARCACAO", actorId: client.id, targetType: "Appointment", targetId: appt.id, result: "SUCESSO" });
-    expect(created[0].detail).toContain("Esmaltação especial");
+    expect(created[0].detail).toContain("Lavagem especial");
     expect(JSON.stringify(created)).not.toContain(client.email);
     expect(JSON.stringify(created)).not.toContain(client.phone);
 
@@ -280,6 +281,7 @@ describe("Limite de pedidos de reserva (correção)", () => {
       const f = new FormData();
       f.set("serviceId", "servico-que-nao-existe");
       f.set("startAtIso", nextDayAt(10, 0).toISOString());
+      f.set("vehicleId", "veiculo-que-nao-existe");
       return f;
     };
     for (let i = 0; i < RATE_LIMITS.bookingWritesPerMinute; i++) {
@@ -306,9 +308,11 @@ describe("Ações administrativas", () => {
       f.set("active", "on");
       return f;
     };
-    await redirectsTo(upsertServiceAction(null, form("Manicure nova")));
-    const service = await prisma.service.findFirstOrThrow({ where: { name: "Manicure nova" } });
-    await redirectsTo(upsertServiceAction(null, form("Manicure renomeada", service.id)));
+    // Criação: não redireciona; devolve o ID para a tela enviar as fotos escolhidas (veja ServiceForm).
+    const created = await upsertServiceAction(null, form("Lavagem nova"));
+    const service = await prisma.service.findFirstOrThrow({ where: { name: "Lavagem nova" } });
+    expect(created).toEqual({ errors: {}, createdId: service.id });
+    await redirectsTo(upsertServiceAction(null, form("Lavagem renomeada", service.id)));
     await toggleServiceActiveAction(service.id, false);
 
     const rows = await prisma.auditLog.findMany({ where: { category: "ADMIN" }, orderBy: { createdAt: "asc" } });

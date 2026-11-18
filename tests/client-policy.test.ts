@@ -1,8 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { resetDb, openAllWeek, createClient, createService, nextDayAt } from "./helpers";
+import { resetDb, openAllWeek, createClient, createService, nextDayAt, createBooking } from "./helpers";
 import { prisma } from "@/lib/db";
 import {
-  createBooking,
   cancelOwnBooking,
   updateAppointmentStatus,
   BookingLimitError,

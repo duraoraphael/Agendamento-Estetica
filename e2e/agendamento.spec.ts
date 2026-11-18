@@ -4,6 +4,7 @@ import path from "node:path";
 import { expect, test, type Page, type TestInfo } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { E2E_DATABASE_URL, E2E_ENV } from "../playwright.config";
+import { clickNav, completeVehicleStep, enabledDayKeys, pickDay } from "./helpers";
 
 const prisma = new PrismaClient({ datasourceUrl: E2E_DATABASE_URL });
 const ADMIN = { email: E2E_ENV.ADMIN_EMAIL, password: E2E_ENV.ADMIN_PASSWORD };
@@ -76,13 +77,13 @@ function expectClean(page: Page) {
 
 async function login(page: Page, email: string, password: string) {
   await page.goto("/login");
-  await page.getByLabel("E-mail").fill(email);
-  await page.getByLabel("Senha").fill(password);
+  await page.getByLabel("E-mail", { exact: true }).fill(email);
+  await page.getByLabel("Senha", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Entrar" }).click();
   await page.waitForURL((u) => !u.pathname.startsWith("/login")); // espera o login concluir
 }
 
-/** Dia útil (ter–sex) daqui a `ahead` dias, no horário local do estúdio, devolvido como ISO UTC. */
+/** Dia útil (ter–sex) daqui a `ahead` dias, no horário local da empresa, devolvido como ISO UTC. */
 function slotIso(ahead: number, hour: number): string {
   const base = new Date();
   for (let i = ahead + dayShift; i < ahead + dayShift + 14; i++) {
@@ -97,7 +98,7 @@ function slotIso(ahead: number, hour: number): string {
 
 /** `spanSeconds` encurta o intervalo gravado (sem mudar `durationMinutes`): permite reservas coladas, sem sobreposição. */
 async function insertAppointment(clientId: string, startIso: string, status = "CONFIRMADA", minutes = 60, price = 6000, spanSeconds?: number) {
-  const svc = await prisma.service.findFirstOrThrow({ where: { name: "Esmaltação em gel" } });
+  const svc = await prisma.service.findFirstOrThrow({ where: { name: "Higienização de ar-condicionado" } });
   const start = new Date(startIso);
   return prisma.appointment.create({
     data: { clientId, serviceId: svc.id, serviceName: svc.name, priceCents: price, durationMinutes: minutes, startAt: start, endAt: new Date(start.getTime() + (spanSeconds ?? minutes * 60) * 1000), status },
@@ -113,9 +114,11 @@ test("cliente: cadastro, login, tela vazia, recarregar, menu e URL direta", asyn
   state.name = `Cliente Navegador ${info.project.name.replace("celular-390", "Celular")}`; // nome único por projeto
 
   await page.goto("/");
-  await expect(page.getByRole("link", { name: "Agendar horário" })).toBeVisible();
-  const box = await page.getByRole("link", { name: "Agendar horário" }).boundingBox();
-  expect(box!.y + box!.height, "'Agendar horário' deve aparecer sem rolar").toBeLessThanOrEqual(page.viewportSize()!.height);
+  const cta = page.getByRole("link", { name: "Agendar agora" }).first();
+  await expect(cta).toBeVisible();
+  const box = await cta.boundingBox();
+  expect(box!.y + box!.height, "'Agendar agora' deve aparecer sem rolar").toBeLessThanOrEqual(page.viewportSize()!.height);
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(/Estética\s+Automotiva/i);
   await check(page, info, "01-home");
 
   await page.goto("/meus-agendamentos");
@@ -123,10 +126,11 @@ test("cliente: cadastro, login, tela vazia, recarregar, menu e URL direta", asyn
 
   await page.goto("/cadastro");
   await page.getByLabel("Nome completo").fill(state.name!);
-  await page.getByLabel("E-mail").fill(state.email);
-  await page.getByLabel("Celular com DDD").fill("(11) 98888-7777");
+  await page.getByLabel("E-mail", { exact: true }).fill(state.email);
+  await page.getByLabel("WhatsApp / celular com DDD").fill("(11) 98888-7777");
   await page.getByLabel("Senha", { exact: true }).fill("12345678");
   await page.getByLabel("Confirmar senha").fill("12345678");
+  await page.getByLabel(/Concordo que a Garage Zero Zero/).check(); // consentimento (LGPD) obrigatório
   await page.getByRole("button", { name: "Criar conta" }).click();
   await expect(page.getByText("muito comum")).toBeVisible(); // política de senha
   await check(page, info, "02-cadastro-erro");
@@ -137,20 +141,24 @@ test("cliente: cadastro, login, tela vazia, recarregar, menu e URL direta", asyn
 
   await login(page, state.email, PASSWORD);
   await expect(page).toHaveURL(/\/meus-agendamentos$/);
-  await expect(page.getByText("Próximos horários")).toBeVisible();
-  await expect(page.getByText("Histórico", { exact: true })).toBeVisible();
-  await expect(page.getByText("Nenhum horário marcado")).toBeVisible(); // conta sem agendamentos
+  await expect(page.getByRole("link", { name: /^Próximos/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Histórico" })).toBeVisible();
+  await expect(page.getByText("Nenhum agendamento marcado")).toBeVisible(); // conta sem agendamentos
   await expect(page.getByText(/cancelar pelo site até 24 horas/)).toBeVisible(); // política visível
   await check(page, info, "03-meus-agendamentos-vazio");
 
   await page.reload();
   await expect(page).toHaveURL(/\/meus-agendamentos$/);
-  await expect(page.getByText("Próximos horários")).toBeVisible();
+  await expect(page.getByRole("link", { name: /^Próximos/ })).toBeVisible();
   await page.goto("/meus-agendamentos");
-  await expect(page.getByText("Próximos horários")).toBeVisible();
-  await page.getByRole("navigation", { name: "Principal" }).getByRole("link", { name: "Agendar", exact: true }).click();
+  await expect(page.getByRole("link", { name: /^Próximos/ })).toBeVisible();
+  await clickNav(page, "Agendamento");
   await expect(page).toHaveURL(/\/agendar$/);
-  await page.getByRole("navigation", { name: "Principal" }).getByRole("link", { name: "Meus agendamentos" }).click();
+  await clickNav(page, "Minha conta");
+  await expect(page).toHaveURL(/\/minha-conta$/);
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(/Minha\s+conta/i);
+  await expect(page.getByText("Nenhum veículo", { exact: false }).first().or(page.getByText("ainda não cadastrou"))).toBeVisible();
+  await page.goto("/meus-agendamentos");
   await expect(page).toHaveURL(/\/meus-agendamentos$/);
 
   await page.goto("/admin"); // cliente não entra no painel
@@ -165,37 +173,63 @@ test("cliente: reserva pela interface (3+ dias à frente) e aparece em Próximos
   await expect(page).toHaveURL(/\/meus-agendamentos$/);
   await page.goto("/agendar");
   await check(page, info, "04-servicos");
-  await page.getByRole("link", { name: /Esmaltação em gel/ }).click();
+  // Etapa 1: cartões de serviço selecionáveis.
+  await page.locator("label").filter({ hasText: "Higienização de ar-condicionado" }).click();
+  await page.getByRole("button", { name: "Continuar" }).click();
   await expect(page).toHaveURL(/\/agendar\/horario/);
 
-  const dayButtons = page.locator("fieldset button");
-  await expect(dayButtons.first()).toBeVisible();
+  // Etapa 2: calendário mensal (dias sem atendimento ficam desativados) e horários livres.
+  await expect(page.locator("[data-date]").first()).toBeVisible();
+  expect(await page.locator("[data-date][disabled]").count(), "deve haver datas desativadas (passado e dias sem expediente)").toBeGreaterThan(0);
   let picked = false;
-  for (let i = 3; i < Math.min(await dayButtons.count(), 14) && !picked; i++) {
-    await dayButtons.nth(i).click();
-    // A lista só traz horários livres; cada botão tem o próprio horário como nome ("14:00").
-    const slot = page.getByRole("button", { name: /^\d{2}:\d{2}$/ }).first();
-    try {
-      await slot.waitFor({ state: "visible", timeout: 4000 });
-      await slot.click();
-      picked = true;
-    } catch {
-      /* dia sem horários: tenta o próximo */
+  for (let month = 0; month < 2 && !picked; month++) {
+    const keys = await enabledDayKeys(page);
+    for (const key of keys.slice(month === 0 ? 3 : 0, 14)) {
+      await pickDay(page, key);
+      // A lista só traz horários livres; cada botão tem o próprio horário como nome ("14:00").
+      const slot = page.getByRole("button", { name: /^\d{2}:\d{2}$/ }).first();
+      try {
+        await slot.waitFor({ state: "visible", timeout: 4000 });
+        await slot.click();
+        picked = true;
+        break;
+      } catch {
+        /* dia sem horários: tenta o próximo */
+      }
     }
+    const next = page.getByRole("button", { name: "Próximo mês" });
+    if (!picked && (await next.isEnabled())) await next.click();
   }
   expect(picked, "deve existir um horário disponível").toBe(true);
   await check(page, info, "05-horarios");
   await page.getByRole("button", { name: "Continuar" }).click();
+
+  // Etapa 3: veículo (cadastro rápido, sem sair do agendamento) e observações.
+  await expect(page).toHaveURL(/\/agendar\/veiculo/);
+  await check(page, info, "05b-veiculo");
+  await completeVehicleStep(page, { plate: "abc-1d23", notes: "Atenção especial nas rodas." });
+
+  // Etapa 4: revisão com a placa parcialmente mascarada.
   await expect(page).toHaveURL(/\/agendar\/revisar/);
   await expect(page.getByText(/cancelar pelo site até 24 horas/)).toBeVisible(); // política antes de confirmar
+  await expect(page.getByText("Fiat Argo")).toBeVisible();
+  await expect(page.getByText(/ABC••23/)).toBeVisible();
+  await expect(page.getByText("ABC1D23")).toHaveCount(0); // a placa completa não aparece na revisão
+  await expect(page.getByText("Atenção especial nas rodas.")).toBeVisible();
   await check(page, info, "06-revisar");
   await page.getByRole("button", { name: "Confirmar agendamento" }).click();
-  await expect(page).toHaveURL(/confirmado=/); // o id da reserva vai na URL para o botão "Salvar no Google Agenda"
-  await expect(page.getByText("Agendamento confirmado")).toBeVisible();
-  await expect(page.getByText("Esmaltação em gel").first()).toBeVisible();
+  await expect(page).toHaveURL(/\/agendar\/confirmado\//); // página dedicada; só a dona da reserva a abre
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(/Agendamento\s+confirmado/i);
+  await expect(page.getByText("Higienização de ar-condicionado").first()).toBeVisible();
+  await expect(page.getByText("Fiat Argo")).toBeVisible();
+  await expect(page.getByRole("link", { name: "Ver agendamentos" })).toBeVisible();
   await check(page, info, "07-confirmado");
 
-  state.firstApptId = (await prisma.appointment.findFirstOrThrow({ where: { clientId: state.clientId }, orderBy: { createdAt: "desc" } })).id;
+  const created = await prisma.appointment.findFirstOrThrow({ where: { clientId: state.clientId }, orderBy: { createdAt: "desc" } });
+  state.firstApptId = created.id;
+  // Snapshot do veículo e observações gravados na reserva.
+  expect(created).toMatchObject({ vehicleBrandSnapshot: "Fiat", vehicleModelSnapshot: "Argo", vehiclePlateSnapshot: "ABC1D23", notes: "Atenção especial nas rodas." });
+  expect(page.url()).toContain(created.id);
   expectClean(page);
 });
 
@@ -209,8 +243,9 @@ test("cliente: limite de 3 reservas futuras ativas (aviso na tela e recusa no se
   await check(page, info, "08-limite-aviso");
 
   // Mesmo ignorando a tela, o servidor recusa a 4ª reserva.
-  const svc = await prisma.service.findFirstOrThrow({ where: { name: "Esmaltação em gel" } });
-  await page.goto(`/agendar/revisar?serviceId=${svc.id}&startAt=${encodeURIComponent(slotIso(12, 15))}`);
+  const svc = await prisma.service.findFirstOrThrow({ where: { name: "Higienização de ar-condicionado" } });
+  const vehicle = await prisma.vehicle.findFirstOrThrow({ where: { userId: state.clientId! } });
+  await page.goto(`/agendar/revisar?serviceId=${svc.id}&startAt=${encodeURIComponent(slotIso(12, 15))}&vehicleId=${vehicle.id}`);
   await page.getByRole("button", { name: "Confirmar agendamento" }).click();
   await expect(page.getByRole("alert").or(page.getByText(/limite por cliente/)).first()).toBeVisible();
   await check(page, info, "09-limite-recusado");
@@ -237,6 +272,9 @@ test("cliente: cancela com mais de 24h (duas etapas), preserva histórico e libe
   expect(after.priceCents).toBe(before.priceCents); // histórico preservado
   await check(page, info, "11-cancelada");
   await page.goto("/meus-agendamentos");
+  await expect(page.getByText("Cancelada")).toHaveCount(0); // sai de "Próximos"
+  await page.getByRole("link", { name: "Histórico" }).click();
+  await expect(page).toHaveURL(/aba=historico/);
   await expect(page.getByText("Cancelada").first()).toBeVisible(); // aparece no histórico
   expectClean(page);
 });
@@ -253,7 +291,7 @@ test("cliente: com menos de 24h não há botão de cancelar; reserva de outra cl
 
   await login(page, state.email!, PASSWORD);
   await page.goto(`/meus-agendamentos/${near.id}`);
-  await expect(page.getByText(/prazo para cancelar pelo site já passou/)).toBeVisible();
+  await expect(page.getByText(/prazo para reagendar ou cancelar pelo site já passou/)).toBeVisible();
   await expect(page.getByRole("button", { name: "Cancelar agendamento" })).toHaveCount(0);
   await check(page, info, "12-sem-cancelar");
 
@@ -263,16 +301,21 @@ test("cliente: com menos de 24h não há botão de cancelar; reserva de outra cl
   issues.get(page)!.length = 0; // o 404 acima é o resultado esperado
 });
 
-test("teclado: foco percorre e-mail, senha e Entrar; Enter envia; erro é anunciado", async ({ page }) => {
+test("teclado: foco percorre e-mail, senha, mostrar senha e Entrar; Enter envia; erro é anunciado", async ({ page }) => {
   watch(page);
   await page.goto("/login");
-  const seen: string[] = [];
-  for (let i = 0; i < 6; i++) {
+  await page.getByLabel("E-mail", { exact: true }).focus();
+  const order: string[] = [];
+  for (let i = 0; i < 3; i++) {
     await page.keyboard.press("Tab");
-    seen.push(await page.evaluate(() => document.activeElement?.id || (document.activeElement as HTMLElement)?.innerText?.trim().slice(0, 12) || ""));
+    order.push(
+      await page.evaluate(
+        () => document.activeElement?.id || (document.activeElement as HTMLElement)?.getAttribute("aria-label") || (document.activeElement as HTMLElement)?.innerText?.trim().slice(0, 12) || ""
+      )
+    );
   }
-  expect(seen).toEqual(expect.arrayContaining(["email", "password", "Entrar"]));
-  await page.getByLabel("E-mail").focus();
+  expect(order).toEqual(["password", "Mostrar senha", "Entrar"]);
+  await page.getByLabel("E-mail", { exact: true }).focus();
   await page.keyboard.type("naoexiste@example.com");
   await page.keyboard.press("Tab");
   await page.keyboard.type("qualquer-senha");
@@ -342,7 +385,7 @@ test("administradora: lista, aviso de novos, GET não grava, filtros inválidos,
   expectClean(page);
 });
 
-test("administradora: faturamento diário, semanal e mensal com dados conhecidos nas viradas (fuso do estúdio)", async ({ page }, info) => {
+test("administradora: faturamento diário, semanal e mensal com dados conhecidos nas viradas (fuso da empresa)", async ({ page }, info) => {
   watch(page);
   const c = await prisma.user.create({ data: { name: "Cliente Fatura", email: `fat-${info.project.name}-${stamp}@example.com`, phone: "(11) 95555-4444", passwordHash: "x", role: "CLIENTE" } });
   // Cada reserva ocupa só 1 segundo: as viradas ficam 1 s uma da outra e o PostgreSQL recusa sobreposição.

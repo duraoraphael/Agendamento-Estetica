@@ -6,7 +6,7 @@ import dynamic from "next/dynamic";
 // os totais e a navegação do faturamento utilizáveis antes do gráfico, em vez de esperar todo o pacote.
 const BillingChart = dynamic(() => import("@/components/BillingChart").then((m) => m.BillingChart), {
   ssr: false,
-  loading: () => <div className="h-64 animate-pulse rounded-xl bg-blush" role="status" aria-label="Carregando gráfico" />,
+  loading: () => <div className="h-64 animate-pulse rounded-xl bg-surface-2" role="status" aria-label="Carregando gráfico" />,
 });
 
 export function BillingChartLazy(props: { data: { label: string; cents: number }[] }) {

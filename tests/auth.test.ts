@@ -20,6 +20,7 @@ const validSignup = {
   phone: "(11) 91234-5678",
   password: "senhaSegura123",
   confirmPassword: "senhaSegura123",
+  consent: true,
 };
 
 describe("Cadastro público", () => {
@@ -55,6 +56,16 @@ describe("Cadastro público", () => {
     expect(second.status).toBe(first.status);
     expect(await second.json()).toEqual(await first.json());
     expect(await prisma.user.count({ where: { email: validSignup.email } })).toBe(1);
+  });
+
+  it("exige o consentimento de uso dos dados no SERVIDOR (LGPD): sem consent=true não cria a conta", async () => {
+    for (const consent of [undefined, false, "true", 1]) {
+      const res = await postCadastro({ ...validSignup, consent });
+      const data = await res.json();
+      expect(res.status).toBe(400);
+      expect(data.errors.consent).toBeDefined();
+    }
+    expect(await prisma.user.count({ where: { email: validSignup.email } })).toBe(0);
   });
 
   it("valida senhas que não coincidem", async () => {

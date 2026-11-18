@@ -1,25 +1,29 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
-import { LogoMark } from "@/components/ui";
 import { useSite } from "@/components/SiteContext";
+import { LOGO } from "@/lib/site";
 
 const focusRing =
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-wine focus-visible:ring-offset-2 focus-visible:ring-offset-cream";
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-ink";
 
-/** Marca do estúdio no cabeçalho: logo enviada nas Configurações (ou a gota padrão) + nome. */
+/**
+ * Marca no cabeçalho: SÓ a logo circular (como nas referências). Usa a logo enviada nas Configurações, se houver; senão o
+ * arquivo oficial. O nome fica disponível para leitores de tela.
+ */
 export function Brand({ href = "/", size = "md" }: { href?: string; size?: "md" | "lg" }) {
   const { name, logoUrl } = useSite();
-  const box = size === "lg" ? "h-14 w-14" : "h-9 w-9";
+  const box = size === "lg" ? "h-20 w-20" : "h-14 w-14";
   return (
-    <Link href={href} className={`inline-flex items-center gap-2.5 rounded-full ${focusRing}`}>
+    <Link href={href} className={`inline-flex items-center rounded-full ${focusRing}`}>
       {logoUrl ? (
         // eslint-disable-next-line @next/next/no-img-element -- imagem própria, já limitada a 512 KB; o <Image> exigiria configurar o otimizador.
-        <img src={logoUrl} alt="" className={`${box} flex-none rounded-full object-cover`} />
+        <img src={logoUrl} alt="" width={80} height={80} className={`${box} flex-none rounded-full border-2 border-brand/70 object-cover`} />
       ) : (
-        <LogoMark className={box} />
+        <Image src={LOGO.src} alt="" width={LOGO.width} height={LOGO.height} unoptimized priority className={`${box} flex-none rounded-full border-2 border-brand/70 object-cover`} />
       )}
-      <span className="font-display text-lg font-semibold leading-none text-plum">{name}</span>
+      <span className="sr-only">{name} — página inicial</span>
     </Link>
   );
 }

@@ -4,7 +4,8 @@ import { promisify } from "node:util";
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb, openAllWeek, createClient, createService, nextDayAt } from "./helpers";
 import { prisma } from "@/lib/db";
-import { createBooking, updateAppointmentStatus, BookingConflictError } from "@/lib/booking";
+import { updateAppointmentStatus, BookingConflictError } from "@/lib/booking";
+import { createBooking } from "./helpers";
 import { PG_TEST_URL, PG_TEST_URL_FOR } from "./pg-env";
 
 const execFileAsync = promisify(execFile);

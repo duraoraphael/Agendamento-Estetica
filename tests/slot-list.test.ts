@@ -4,7 +4,7 @@ import { resetDb, createClient, createService, createAdmin, nextDayAt, dateKeyDa
 import { prisma } from "@/lib/db";
 import { encryptSecret } from "@/lib/crypto";
 import { __setCalendarFactoryForTests, clearFreeBusyCache } from "@/lib/google-calendar";
-import { createBooking } from "@/lib/booking";
+import { createBooking } from "./helpers";
 import { makeFakeCalendar } from "./fake-calendar";
 
 // As ações exigem sessão de cliente; o resto (banco, limitador, regras de horário) é real.

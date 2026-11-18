@@ -1,6 +1,7 @@
 import { prisma } from "./db";
 import { zonedToUtc } from "./format";
 import { dateKeyOr } from "./date-keys";
+import { normalizePlate } from "./plate";
 import type { Db } from "./prisma-types";
 import type { AppointmentStatus } from "./types";
 
@@ -48,6 +49,29 @@ export function resolveDateRange(rawFrom: string | undefined, rawTo: string | un
   return { fromKey, toKey: clamped ? maxToKey : toKey, clamped };
 }
 
+/** Teto do texto de busca (cliente ou placa): barra consultas gigantes vindas da URL. */
+export const ADMIN_SEARCH_MAX_LENGTH = 60;
+
+/** Busca digitada na URL -> texto limpo (sem controles, sem espaços nas pontas, no máximo 60 caracteres) ou "". */
+export function cleanSearchQuery(raw: string | undefined): string {
+  if (!raw) return "";
+  return raw.replace(/[\u0000-\u001f\u007f]/g, " ").replace(/\s+/g, " ").trim().slice(0, ADMIN_SEARCH_MAX_LENGTH);
+}
+
+/**
+ * Filtro de busca por NOME DA CLIENTE ou PLACA. A placa é comparada na forma normalizada (maiúsculas, sem hífen), então
+ * "abc-1d" acha "ABC1D23". Parâmetros sempre passam pelo Prisma (nada de SQL montado à mão).
+ */
+export function buildSearchFilter(query: string | undefined) {
+  const q = cleanSearchQuery(query);
+  if (!q) return {};
+  const plate = normalizePlate(q);
+  const or: object[] = [{ client: { name: { contains: q, mode: "insensitive" as const } } }];
+  // Fragmento de placa só com letras/números e pelo menos 2 caracteres (evita casar tudo com "-" ou "1").
+  if (/^[A-Z0-9]{2,8}$/.test(plate)) or.push({ vehiclePlateSnapshot: { contains: plate } });
+  return { OR: or };
+}
+
 /** Número da página vindo da URL: inteiro >= 1; qualquer outra coisa vira 1. */
 export function parsePageNumber(raw: string | undefined): number {
   if (!raw || !/^\d{1,6}$/.test(raw)) return 1;
@@ -60,7 +84,7 @@ export function parsePageNumber(raw: string | undefined): number {
  * Página além da última devolve a última.
  */
 export async function listAppointmentsPage(
-  params: { fromKey: string; toKey: string; status?: AppointmentStatus; page: number },
+  params: { fromKey: string; toKey: string; status?: AppointmentStatus; page: number; query?: string },
   db: Db = prisma
 ) {
   const [fy, fm, fd] = params.fromKey.split("-").map(Number);
@@ -69,7 +93,8 @@ export async function listAppointmentsPage(
   const [ty, tm, td] = addDaysToDateKey(params.toKey, 1).split("-").map(Number);
   const toUtc = zonedToUtc(ty, tm, td, 0, 0);
 
-  const where = { startAt: { gte: fromUtc, lt: toUtc }, status: params.status ? params.status : undefined };
+  const search = buildSearchFilter(params.query);
+  const where = { startAt: { gte: fromUtc, lt: toUtc }, status: params.status ? params.status : undefined, ...search };
   const total = await db.appointment.count({ where });
   const pageCount = Math.max(1, Math.ceil(total / ADMIN_LIST_PAGE_SIZE));
   const page = Math.min(Math.max(1, params.page), pageCount);

@@ -42,6 +42,7 @@ playwright-report/
 
 # === Added by security-skill ===
 .env.*
+!.env.example
 *.key
 *.pem
 secrets/

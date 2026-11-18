@@ -3,7 +3,7 @@ import type { SiteSettingsView } from "@/lib/site-settings";
 
 /**
  * Botão "Salvar no Google Agenda". Aparece somente para reservas futuras confirmadas. Os dados vêm da
- * reserva persistida e das Configurações do estúdio (nome, endereço, instruções, telefone).
+ * reserva persistida e das Configurações da empresa (nome, endereço, instruções, telefone).
  */
 export function AddToGoogleCalendar({
   appointment,
@@ -18,7 +18,7 @@ export function AddToGoogleCalendar({
 
   const href = buildGoogleCalendarUrl({
     appointment,
-    studioName: site.siteName,
+    businessName: site.siteName,
     address: site.address,
     locationNotes: site.locationNotes,
     phone: site.phone || site.whatsapp,
@@ -31,7 +31,7 @@ export function AddToGoogleCalendar({
         <span className="sr-only"> (abre o Google Agenda em uma nova aba)</span>
       </a>
       {!compact && (
-        <p className="mt-2 text-xs text-plum-muted">
+        <p className="mt-2 text-xs text-fg-muted">
           O Google Agenda abre com o evento preenchido e você confirma o salvamento na sua conta. Depois de salvo, o evento é só seu: se este
           horário mudar, confira o evento na sua agenda.
         </p>

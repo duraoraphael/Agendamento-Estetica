@@ -27,7 +27,7 @@ export class LogoValidationError extends Error {}
 /** Texto de orientação exibido ao lado do campo de envio. */
 export const LOGO_GUIDANCE = `PNG, JPEG ou WebP, até ${LOGO_MAX_BYTES / 1024} KB. Use uma imagem quadrada de pelo menos 256 × 256 px (ideal 512 × 512 px, fundo transparente em PNG); ela aparece pequena no cabeçalho e maior no login. Lados entre ${LOGO_MIN_SIDE} e ${LOGO_MAX_SIDE} px.`;
 
-function detectType(b: Uint8Array): LogoContentType | "svg" | null {
+export function detectType(b: Uint8Array): LogoContentType | "svg" | null {
   if (b.length >= 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47 && b[4] === 0x0d && b[5] === 0x0a && b[6] === 0x1a && b[7] === 0x0a) {
     return "image/png";
   }

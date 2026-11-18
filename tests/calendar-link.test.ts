@@ -4,7 +4,7 @@ import { zonedToUtc } from "@/lib/format";
 
 const base = (startAt: Date, minutes: number) => ({
   id: "cmw4b5en40019rez6ot53cta7",
-  serviceName: "Esmaltação em gel",
+  serviceName: "Lavagem detalhada",
   startAt,
   endAt: new Date(startAt.getTime() + minutes * 60_000),
 });
@@ -12,7 +12,7 @@ const base = (startAt: Date, minutes: number) => ({
 describe("Link “Salvar no Google Agenda”", () => {
   it("converte 14:00 de São Paulo para UTC e respeita a duração do serviço", () => {
     const start = zonedToUtc(2026, 12, 10, 14, 0); // 14:00 BRT (UTC-3) = 17:00Z
-    const url = new URL(buildGoogleCalendarUrl({ appointment: base(start, 90), studioName: "Studio" }));
+    const url = new URL(buildGoogleCalendarUrl({ appointment: base(start, 90), businessName: "Garage" }));
     expect(url.origin + url.pathname).toBe("https://calendar.google.com/calendar/render");
     expect(url.searchParams.get("action")).toBe("TEMPLATE");
     expect(url.searchParams.get("dates")).toBe("20261210T170000Z/20261210T183000Z");
@@ -26,8 +26,8 @@ describe("Link “Salvar no Google Agenda”", () => {
   it("codifica caracteres especiais sem quebrar a URL (&, #, acentos, quebra de linha)", () => {
     const start = zonedToUtc(2026, 12, 10, 9, 15);
     const raw = buildGoogleCalendarUrl({
-      appointment: { ...base(start, 45), serviceName: "Manicure & Pedicure #1 — “Ação”" },
-      studioName: "Studio João & Maria",
+      appointment: { ...base(start, 45), serviceName: "Lavagem & Polimento #1 — “Ação”" },
+      businessName: "Garage João & Maria",
       address: "Rua das Flores, 123 — sala 2 / Centro? (fundos)",
       locationNotes: "Interfone 12\nSubir a escada",
       phone: "(11) 90000-0000",
@@ -36,17 +36,17 @@ describe("Link “Salvar no Google Agenda”", () => {
     expect(raw.split("?")[1].split("&")).toHaveLength(6);
     expect(raw).not.toMatch(/#/);
     const url = new URL(raw);
-    expect(url.searchParams.get("text")).toBe("Manicure & Pedicure #1 — “Ação” — Studio João & Maria");
+    expect(url.searchParams.get("text")).toBe("Lavagem & Polimento #1 — “Ação” — Garage João & Maria");
     expect(url.searchParams.get("location")).toBe("Rua das Flores, 123 — sala 2 / Centro? (fundos)");
     const details = url.searchParams.get("details")!;
     expect(details).toContain("Reserva " + bookingReference("cmw4b5en40019rez6ot53cta7"));
     expect(details).toContain("Como chegar: Interfone 12\nSubir a escada");
-    expect(details).toContain("Contato do estúdio: (11) 90000-0000");
+    expect(details).toContain("Contato: (11) 90000-0000");
     expect(details).toContain("confira o evento salvo");
   });
 
   it("não inclui dados da cliente (nome, celular) nem o id completo da reserva", () => {
-    const raw = buildGoogleCalendarUrl({ appointment: base(zonedToUtc(2026, 12, 10, 9, 0), 60), studioName: "Studio" });
+    const raw = buildGoogleCalendarUrl({ appointment: base(zonedToUtc(2026, 12, 10, 9, 0), 60), businessName: "Garage" });
     expect(decodeURIComponent(raw)).not.toContain("cmw4b5en40019rez6ot53cta7");
   });
 
@@ -54,7 +54,7 @@ describe("Link “Salvar no Google Agenda”", () => {
     const url = new URL(
       buildGoogleCalendarUrl({
         appointment: base(zonedToUtc(2026, 12, 10, 9, 0), 60),
-        studioName: "Studio",
+        businessName: "Garage",
         locationNotes: "x".repeat(5000),
       })
     );

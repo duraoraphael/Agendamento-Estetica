@@ -5,14 +5,14 @@ import { TIMEZONE } from "./constants";
  * já preenchido e confirma o salvamento NA PRÓPRIA conta; o site não acessa a agenda dela.
  *
  * Horários: o link leva início e fim em UTC (sufixo Z, a partir dos instantes gravados na reserva) e
- * `ctz=America/Sao_Paulo`, então o Google mostra o evento no fuso do estúdio, sem depender do fuso do servidor
+ * `ctz=America/Sao_Paulo`, então o Google mostra o evento no fuso da empresa, sem depender do fuso do servidor
  * nem do navegador. Todos os parâmetros passam por encodeURIComponent (acentos, &, #, quebras de linha).
  */
 
 export interface CalendarLinkInput {
   /** Reserva persistida: a única fonte dos dados do evento. */
   appointment: { id: string; serviceName: string; startAt: Date; endAt: Date };
-  studioName: string;
+  businessName: string;
   address?: string;
   locationNotes?: string;
   phone?: string;
@@ -38,18 +38,18 @@ export function canSaveToGoogleCalendar(a: { status: string; startAt: Date }, no
 }
 
 export function buildGoogleCalendarUrl(input: CalendarLinkInput): string {
-  const { appointment: a, studioName, address, locationNotes, phone } = input;
+  const { appointment: a, businessName, address, locationNotes, phone } = input;
 
   const detailLines = [
     `Reserva ${bookingReference(a.id)}`,
     ...(locationNotes ? [`Como chegar: ${locationNotes}`] : []),
-    ...(phone ? [`Contato do estúdio: ${phone}`] : []),
+    ...(phone ? [`Contato: ${phone}`] : []),
     "Se este horário mudar, confira o evento salvo na sua agenda.",
   ];
 
   const params: [string, string][] = [
     ["action", "TEMPLATE"],
-    ["text", `${a.serviceName} — ${studioName}`.slice(0, MAX_TITLE)],
+    ["text", `${a.serviceName} — ${businessName}`.slice(0, MAX_TITLE)],
     ["dates", `${toGoogleCalendarDate(a.startAt)}/${toGoogleCalendarDate(a.endAt)}`],
     ["ctz", TIMEZONE],
     ["details", detailLines.join("\n").slice(0, MAX_DETAILS)],

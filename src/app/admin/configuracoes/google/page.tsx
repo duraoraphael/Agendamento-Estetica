@@ -40,8 +40,8 @@ export default async function GoogleConfigPage({
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="font-display text-2xl font-semibold text-plum sm:text-3xl">Google Agenda</h1>
-        <p className="text-sm text-plum-muted">
+        <h1 className="page-title">Google <span className="accent">Agenda</span></h1>
+        <p className="text-sm text-fg-muted">
           Conecte sua conta do Google para sincronizar automaticamente os agendamentos confirmados como eventos na
           sua agenda. A agenda interna do site continua funcionando mesmo sem essa conexão.
         </p>
@@ -65,19 +65,19 @@ export default async function GoogleConfigPage({
       )}
 
       {!configured && !mock ? (
-        <div className="card text-sm text-plum-muted">
-          <p className="font-semibold text-plum">Integração ainda não configurada</p>
+        <div className="card text-sm text-fg-muted">
+          <p className="font-semibold text-fg">Integração ainda não configurada</p>
           <p className="mt-1">
-            Defina <code className="rounded bg-neutral-page px-1">GOOGLE_CLIENT_ID</code>,{" "}
-            <code className="rounded bg-neutral-page px-1">GOOGLE_CLIENT_SECRET</code> e{" "}
-            <code className="rounded bg-neutral-page px-1">GOOGLE_REDIRECT_URI</code> no arquivo <code>.env</code> do
+            Defina <code className="rounded bg-ink px-1">GOOGLE_CLIENT_ID</code>,{" "}
+            <code className="rounded bg-ink px-1">GOOGLE_CLIENT_SECRET</code> e{" "}
+            <code className="rounded bg-ink px-1">GOOGLE_REDIRECT_URI</code> no arquivo <code>.env</code> do
             servidor. O passo a passo completo (criação do projeto no Google Cloud, tela de consentimento e
             credenciais OAuth) está no README, na seção &ldquo;Conectar o Google Agenda&rdquo;.
           </p>
         </div>
       ) : account ? (
         <div className="card space-y-3">
-          <p className="text-sm text-plum-muted">
+          <p className="text-sm text-fg-muted">
             Conectado em <strong>{formatDateTimeBR(account.connectedAt)}</strong>.
           </p>
           {account.lastSyncError && (
@@ -90,7 +90,7 @@ export default async function GoogleConfigPage({
           </form>
         </div>
       ) : mock ? (
-        <div className="card text-sm text-plum-muted">Conexão simulada: conecte uma conta de teste no banco para exercitar a sincronização.</div>
+        <div className="card text-sm text-fg-muted">Conexão simulada: conecte uma conta de teste no banco para exercitar a sincronização.</div>
       ) : (
         <a href="/api/google/connect" className="btn-primary block w-full text-center">
           Conectar Google Agenda
@@ -98,28 +98,28 @@ export default async function GoogleConfigPage({
       )}
       {account && (
         <section className="card space-y-3" aria-labelledby="sincronizacao">
-          <h2 id="sincronizacao" className="font-display text-xl font-semibold text-plum">
+          <h2 id="sincronizacao" className="font-display text-xl font-semibold text-fg">
             Sincronização das reservas
           </h2>
-          <p className="text-sm text-plum-muted">
+          <p className="text-sm text-fg-muted">
             Cada reserva confirmada vira um evento na sua agenda; alterações e cancelamentos são refletidos. Se o Google estiver fora do ar, as
             tentativas continuam sozinhas (1 min, 5 min, 15 min, 1 h e 6 h) e sobrevivem a reinícios do servidor.
           </p>
-          <p className="text-sm text-plum">
+          <p className="text-sm text-fg">
             Aguardando envio: <strong>{overview.pending}</strong> · Com falha: <strong>{overview.failed.length}</strong>
           </p>
           {overview.failed.length === 0 ? (
             <p className="text-sm text-status-done">✓ Nenhuma falha de sincronização.</p>
           ) : (
             <>
-              <ul className="divide-y divide-neutral-line rounded-xl border border-status-danger/30 bg-status-danger-bg">
+              <ul className="divide-y divide-line rounded-xl border border-status-danger/30 bg-status-danger-bg">
                 {overview.failed.map((a) => (
                   <li key={a.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm">
                     <span className="min-w-0">
-                      <span className="block font-semibold text-plum">
+                      <span className="block font-semibold text-fg">
                         {a.serviceName} — {a.client.name}
                       </span>
-                      <span className="block text-plum-muted">
+                      <span className="block text-fg-muted">
                         {formatDateTimeBR(a.startAt)} · {a.googleSyncAttempts} tentativa{a.googleSyncAttempts === 1 ? "" : "s"}
                         {a.googleSyncNextAt ? ` · próxima automática: ${formatDateTimeBR(a.googleSyncNextAt)}` : " · tentativas automáticas esgotadas"}
                       </span>

@@ -1,31 +1,19 @@
 import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { formatCents } from "@/lib/format";
-import { TIMEZONE, BOOKING_HORIZON_DAYS } from "@/lib/constants";
+import { buildCalendarRange } from "@/lib/calendar-range";
+import { isValidDateKey } from "@/lib/availability";
 import { SlotPicker } from "@/components/SlotPicker";
-import { Notice, Page, Stepper } from "@/components/ui";
+import { Notice, Page, PageHeader, Stepper } from "@/components/ui";
+import { ClockIcon } from "@/components/icons";
 
-function buildUpcomingDays(count: number) {
-  const days: { key: string; label: string }[] = [];
-  const now = new Date();
-
-  for (let i = 0; i < count; i++) {
-    const d = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
-    const key = new Intl.DateTimeFormat("en-CA", { timeZone: TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
-    let label = new Intl.DateTimeFormat("pt-BR", { timeZone: TIMEZONE, weekday: "short", day: "2-digit", month: "2-digit" }).format(d);
-    if (i === 0) label = `Hoje ${new Intl.DateTimeFormat("pt-BR", { timeZone: TIMEZONE, day: "2-digit", month: "2-digit" }).format(d)}`;
-    if (i === 1) label = `Amanhã ${new Intl.DateTimeFormat("pt-BR", { timeZone: TIMEZONE, day: "2-digit", month: "2-digit" }).format(d)}`;
-    days.push({ key, label });
-  }
-  return days;
-}
+export const metadata = { title: "Escolha a data e o horário" };
 
 export default async function EscolherHorarioPage({
   searchParams: searchParamsPromise,
 }: {
-  searchParams: Promise<{ serviceId?: string; conflito?: string }>;
+  searchParams: Promise<{ serviceId?: string; conflito?: string; data?: string; hora?: string }>;
 }) {
-  // Next 15: searchParams é assíncrono (em Next 14 o await é inofensivo).
   const searchParams = await searchParamsPromise;
   const serviceId = searchParams.serviceId;
   if (!serviceId) redirect("/agendar");
@@ -33,13 +21,18 @@ export default async function EscolherHorarioPage({
   const service = await prisma.service.findUnique({ where: { id: serviceId } });
   if (!service || !service.active) redirect("/agendar?indisponivel=1");
 
-  const days = buildUpcomingDays(Math.min(BOOKING_HORIZON_DAYS, 30));
+  const calendar = await buildCalendarRange();
+  // Preferências vindas do agendamento rápido da página inicial. São só sugestão de partida: validadas aqui, e a lista
+  // de horários (e a confirmação) continuam sendo as regras do servidor.
+  const initialDay = searchParams.data && isValidDateKey(searchParams.data) && searchParams.data >= calendar.todayKey && searchParams.data <= calendar.maxKey ? searchParams.data : undefined;
+  const initialTime = searchParams.hora && /^([01]\d|2[0-3]):[0-5]\d$/.test(searchParams.hora) ? searchParams.hora : undefined;
 
   return (
-    <Page>
+    <Page width="xl">
       <Stepper current={2} serviceId={service.id} />
-      <h1 className="page-title mt-8">Escolha o dia e o horário</h1>
-      <p className="mt-2 text-plum-muted">Passo 2 de 3 — {service.name}</p>
+      <div className="mt-8">
+        <PageHeader title="Escolha a" accent="data e o horário" subtitle="Etapa 2 de 4 — selecione uma data e um horário disponível." />
+      </div>
 
       {searchParams.conflito && (
         <div className="mt-5">
@@ -47,15 +40,17 @@ export default async function EscolherHorarioPage({
         </div>
       )}
 
-      <div className="mt-5 flex items-center justify-between gap-4 rounded-2xl border border-gold/40 bg-white px-5 py-3">
+      <div className="mt-5 flex items-center justify-between gap-4 rounded-2xl border border-brand/40 bg-surface px-5 py-3">
         <div>
-          <p className="font-display font-semibold text-plum">{service.name}</p>
-          <p className="text-sm text-plum-muted">{service.durationMinutes} minutos</p>
+          <p className="font-display text-lg font-bold uppercase tracking-wide text-fg">{service.name}</p>
+          <p className="flex items-center gap-1.5 text-sm text-fg-muted">
+            <ClockIcon className="h-4 w-4" /> {service.durationMinutes} minutos
+          </p>
         </div>
-        <p className="font-display text-xl font-semibold text-wine">{formatCents(service.priceCents)}</p>
+        <p className="font-display text-2xl font-bold text-brand">{formatCents(service.priceCents)}</p>
       </div>
 
-      <SlotPicker serviceId={service.id} days={days} />
+      <SlotPicker serviceId={service.id} calendar={calendar} initialDay={initialDay} initialTime={initialTime} />
     </Page>
   );
 }

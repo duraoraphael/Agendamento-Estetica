@@ -7,7 +7,7 @@ import { getMonthGrid, shiftMonthKey } from "@/lib/calendar-grid";
 import { ALL_APPOINTMENT_STATUSES, type AppointmentStatus } from "@/lib/types";
 import { STATUS_LABELS } from "@/lib/constants";
 import { monthKeyOr } from "@/lib/date-keys";
-import { ADMIN_LIST_MAX_RANGE_DAYS, listAppointmentsPage, parsePageNumber, resolveDateRange } from "@/lib/admin-appointments";
+import { ADMIN_LIST_MAX_RANGE_DAYS, ADMIN_SEARCH_MAX_LENGTH, cleanSearchQuery, listAppointmentsPage, parsePageNumber, resolveDateRange } from "@/lib/admin-appointments";
 import { requireAdmin } from "@/lib/session";
 import { getNewAppointmentsCount } from "@/lib/admin-stats";
 import { MarkNotificationsSeen } from "@/components/MarkNotificationsSeen";
@@ -39,7 +39,7 @@ function parseKeyToUtcStart(key: string) {
 export default async function AgendamentosPage({
   searchParams: searchParamsPromise,
 }: {
-  searchParams: Promise<{ from?: string; to?: string; status?: string; view?: string; month?: string; page?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; status?: string; view?: string; month?: string; page?: string; q?: string }>;
 }) {
   // Next 15: searchParams é assíncrono (em Next 14 o await é inofensivo).
   const searchParams = await searchParamsPromise;
@@ -55,6 +55,8 @@ export default async function AgendamentosPage({
   // Datas validadas no servidor, com intervalo máximo mesmo para valores digitados na URL (src/lib/admin-appointments.ts).
   const { fromKey, toKey, clamped } = resolveDateRange(searchParams.from, searchParams.to, todayKey);
   const requestedPage = parsePageNumber(searchParams.page);
+  // Busca por cliente ou placa: texto limpo e limitado (a consulta usa parâmetros do Prisma, nunca SQL montado à mão).
+  const query = cleanSearchQuery(searchParams.q);
 
   const monthStart = parseKeyToUtcStart(`${monthKey}-01`);
   const monthEnd = new Date(parseKeyToUtcStart(shiftMonthKey(monthKey, 1) + "-01").getTime());
@@ -62,7 +64,7 @@ export default async function AgendamentosPage({
   // Consultas independentes em paralelo. A lista só é buscada na visão "lista" (no calendário ela não é exibida).
   const [newCount, listing, monthAppointments] = await Promise.all([
     getNewAppointmentsCount(admin.id),
-    view === "lista" ? listAppointmentsPage({ fromKey, toKey, status, page: requestedPage }) : Promise.resolve(null),
+    view === "lista" ? listAppointmentsPage({ fromKey, toKey, status, page: requestedPage, query }) : Promise.resolve(null),
     view === "calendario"
       ? prisma.appointment.findMany({ where: { startAt: { gte: monthStart, lt: monthEnd } }, select: { startAt: true } })
       : Promise.resolve([] as { startAt: Date }[]),
@@ -83,14 +85,15 @@ export default async function AgendamentosPage({
       status: status ?? "TODAS",
       view,
       month: monthKey,
+      ...(query ? { q: query } : {}),
       ...overrides,
     });
     return `/admin/agendamentos?${params.toString()}`;
   };
 
   const viewLink = (active: boolean) =>
-    `inline-flex min-h-[40px] items-center rounded-full px-5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-wine ${
-      active ? "bg-wine text-white shadow-soft" : "text-plum-muted hover:bg-blush hover:text-plum"
+    `inline-flex min-h-[40px] items-center rounded-full px-5 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+      active ? "bg-brand text-ink shadow-soft" : "text-fg-muted hover:bg-surface-2 hover:text-fg"
     }`;
 
   return (
@@ -101,7 +104,7 @@ export default async function AgendamentosPage({
           <p className="eyebrow">Agenda</p>
           <h1 className="page-title mt-1">Agendamentos</h1>
         </div>
-        <nav aria-label="Modo de visualização" className="flex gap-1 rounded-full border border-neutral-line bg-white p-1">
+        <nav aria-label="Modo de visualização" className="flex gap-1 rounded-full border border-line bg-surface p-1">
           <Link href={qs({ view: "lista" })} aria-current={view === "lista" ? "page" : undefined} className={viewLink(view === "lista")}>
             Lista
           </Link>
@@ -114,10 +117,16 @@ export default async function AgendamentosPage({
       <form
         method="get"
         aria-label="Filtros"
-        className="grid grid-cols-1 gap-4 rounded-2xl border border-neutral-line bg-white p-5 shadow-soft sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_auto] lg:items-end"
+        className="grid grid-cols-1 gap-4 rounded-2xl border border-brand/40 bg-surface p-5 shadow-soft sm:grid-cols-2 lg:grid-cols-[1.3fr_1fr_1fr_1fr_auto] lg:items-end"
       >
         <input type="hidden" name="view" value={view} />
         <input type="hidden" name="month" value={monthKey} />
+        <div className="sm:col-span-2 lg:col-span-1">
+          <label className="label" htmlFor="filter-q">
+            Buscar cliente ou placa
+          </label>
+          <input id="filter-q" type="search" name="q" defaultValue={query} maxLength={ADMIN_SEARCH_MAX_LENGTH} placeholder="Nome ou ABC1D23" autoComplete="off" className="input" />
+        </div>
         <div>
           <label className="label" htmlFor="filter-from">
             De
@@ -156,19 +165,19 @@ export default async function AgendamentosPage({
       )}
 
       {view === "calendario" ? (
-        <section aria-label="Calendário de agendamentos" className="mx-auto max-w-2xl rounded-2xl border border-neutral-line bg-white p-4 shadow-soft sm:p-6">
+        <section aria-label="Calendário de agendamentos" className="mx-auto max-w-2xl rounded-2xl border border-line bg-surface p-4 shadow-soft sm:p-6">
           <div className="mb-4 flex items-center justify-between gap-2">
             <Link href={qs({ month: shiftMonthKey(monthKey, -1) })} className="btn-secondary px-4" aria-label="Mês anterior">
               ←
             </Link>
-            <h2 className="font-display text-xl font-semibold capitalize text-plum" aria-live="polite">
+            <h2 className="font-display text-xl font-semibold capitalize text-fg" aria-live="polite">
               {monthTitle(monthKey)}
             </h2>
             <Link href={qs({ month: shiftMonthKey(monthKey, 1) })} className="btn-secondary px-4" aria-label="Próximo mês">
               →
             </Link>
           </div>
-          <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-plum-muted" aria-hidden="true">
+          <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold text-fg-muted" aria-hidden="true">
             {["D", "S", "T", "Q", "Q", "S", "S"].map((d, i) => (
               <div key={i} className="py-1">
                 {d}
@@ -187,13 +196,13 @@ export default async function AgendamentosPage({
                       href={qs({ view: "lista", from: cell.dateKey, to: cell.dateKey })}
                       aria-label={dayLabel(cell.dateKey, count)}
                       aria-current={isToday ? "date" : undefined}
-                      className={`flex aspect-square min-h-[44px] flex-col items-center justify-center rounded-xl text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-wine ${
-                        cell.inMonth ? "text-plum hover:bg-blush" : "text-plum-muted/70 hover:bg-neutral-page"
-                      } ${isToday ? "bg-blush font-bold ring-2 ring-wine" : count > 0 ? "bg-blush-light" : ""}`}
+                      className={`flex aspect-square min-h-[44px] flex-col items-center justify-center rounded-xl text-sm transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+                        cell.inMonth ? "text-fg hover:bg-surface-2" : "text-fg-muted/70 hover:bg-ink"
+                      } ${isToday ? "bg-surface-2 font-bold ring-2 ring-brand" : count > 0 ? "bg-surface" : ""}`}
                     >
                       <span>{Number(cell.dateKey.slice(-2))}</span>
                       {count > 0 && (
-                        <span className="mt-0.5 min-w-[1.25rem] rounded-full bg-wine px-1.5 text-[11px] font-bold leading-5 text-white">{count}</span>
+                        <span className="mt-0.5 min-w-[1.25rem] rounded-full bg-brand px-1.5 text-[11px] font-bold leading-5 text-ink">{count}</span>
                       )}
                     </Link>
                   );
@@ -201,7 +210,7 @@ export default async function AgendamentosPage({
               </div>
             ))}
           </div>
-          <p className="mt-4 text-center text-xs text-plum-muted">
+          <p className="mt-4 text-center text-xs text-fg-muted">
             O número em vinho indica a quantidade de agendamentos no dia. Toque em um dia para ver a lista.
           </p>
         </section>
@@ -225,7 +234,7 @@ export default async function AgendamentosPage({
               ) : (
                 <span aria-hidden="true" />
               )}
-              <p className="text-sm text-plum-muted" aria-live="polite">
+              <p className="text-sm text-fg-muted" aria-live="polite">
                 Página {listing.page} de {listing.pageCount} · {listing.total} agendamentos
               </p>
               {listing.page < listing.pageCount ? (

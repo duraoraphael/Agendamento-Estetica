@@ -8,14 +8,16 @@ import type { NextRequest } from "next/server";
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  const needsAuth = pathname.startsWith("/admin") || pathname.startsWith("/meus-agendamentos") || pathname.startsWith("/agendar");
+  const clientArea = pathname.startsWith("/meus-agendamentos") || pathname.startsWith("/agendar") || pathname.startsWith("/minha-conta");
+  const needsAuth = pathname.startsWith("/admin") || clientArea;
   if (!needsAuth) return NextResponse.next();
 
   const token = await getToken({ req, secret: process.env.NEXTAUTH_SECRET });
 
   if (!token) {
     const loginUrl = new URL("/login", req.url);
-    loginUrl.searchParams.set("callbackUrl", pathname);
+    // Preserva a intenção (ex.: /agendar/horario?serviceId=...). A página de login revalida o destino (safeCallbackPath).
+    loginUrl.searchParams.set("callbackUrl", pathname + req.nextUrl.search);
     return NextResponse.redirect(loginUrl);
   }
 
@@ -23,7 +25,7 @@ export async function middleware(req: NextRequest) {
     return NextResponse.redirect(new URL("/meus-agendamentos", req.url));
   }
 
-  if ((pathname.startsWith("/meus-agendamentos") || pathname.startsWith("/agendar")) && token.role !== "CLIENTE") {
+  if (clientArea && token.role !== "CLIENTE") {
     return NextResponse.redirect(new URL("/admin", req.url));
   }
 
@@ -31,5 +33,5 @@ export async function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/admin/:path*", "/meus-agendamentos/:path*", "/agendar/:path*"],
+  matcher: ["/admin/:path*", "/meus-agendamentos/:path*", "/agendar/:path*", "/minha-conta/:path*"],
 };

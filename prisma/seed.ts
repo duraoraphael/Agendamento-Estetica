@@ -1,5 +1,6 @@
 import { PrismaClient } from "@prisma/client";
 import { AdminProvisioningError, provisionAdmin } from "./provision-admin";
+import { DEFAULT_SERVICES } from "../src/lib/service-catalog";
 
 const prisma = new PrismaClient();
 
@@ -44,19 +45,13 @@ async function main() {
     });
   }
 
-  // Serviços de exemplo (apenas se ainda não houver nenhum).
-  const serviceCount = await prisma.service.count();
-  if (serviceCount === 0) {
-    await prisma.service.createMany({
-      data: [
-        { name: "Manicure tradicional", priceCents: 4000, durationMinutes: 45 },
-        { name: "Pedicure tradicional", priceCents: 4500, durationMinutes: 50 },
-        { name: "Manicure + Pedicure", priceCents: 8000, durationMinutes: 90 },
-        { name: "Esmaltação em gel", priceCents: 6000, durationMinutes: 60 },
-        { name: "Alongamento de unhas", priceCents: 12000, durationMinutes: 120 },
-      ],
-    });
-    console.log("Serviços de exemplo criados.");
+  // Serviços automotivos padrão (só os que ainda não existem, pelo nome exato; nunca altera preço ou estado de um serviço
+  // existente). Em bancos que ainda têm os serviços de demonstração da manicure, use também `npm run db:migrate-services`.
+  const existing = new Set((await prisma.service.findMany({ select: { name: true } })).map((s) => s.name));
+  const missing = DEFAULT_SERVICES.filter((s) => !existing.has(s.name));
+  if (missing.length > 0) {
+    await prisma.service.createMany({ data: missing.map((s) => ({ name: s.name, priceCents: s.priceCents, durationMinutes: s.durationMinutes })) });
+    console.log(`Serviços padrão criados: ${missing.map((s) => s.name).join(", ")}.`);
   }
 }
 

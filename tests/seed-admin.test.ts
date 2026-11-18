@@ -8,9 +8,9 @@ import { prisma } from "@/lib/db";
 import { AdminProvisioningError, provisionAdmin } from "../prisma/provision-admin";
 
 const env = (over: Record<string, string | undefined> = {}) => ({
-  ADMIN_EMAIL: "dona@estudio.example.com",
+  ADMIN_EMAIL: "dona@garage.example.com",
   ADMIN_PASSWORD: "Tulipa-Rosa-42",
-  ADMIN_NAME: "Dona do Estúdio",
+  ADMIN_NAME: "Dona da Garage",
   ...over,
 });
 
@@ -22,28 +22,28 @@ describe("Seed: conta administrativa (nunca promove nem altera conta existente)"
 
   it("e-mail novo: cria a conta ADMIN com a senha informada", async () => {
     const r = await provisionAdmin(prisma, env());
-    expect(r).toEqual({ status: "created", email: "dona@estudio.example.com" });
-    const u = await prisma.user.findUniqueOrThrow({ where: { email: "dona@estudio.example.com" } });
+    expect(r).toEqual({ status: "created", email: "dona@garage.example.com" });
+    const u = await prisma.user.findUniqueOrThrow({ where: { email: "dona@garage.example.com" } });
     expect(u.role).toBe("ADMIN");
     expect(await bcrypt.compare("Tulipa-Rosa-42", u.passwordHash)).toBe(true);
   });
 
   it("rodar de novo é seguro: não muda papel, senha nem dados da conta ADMIN existente", async () => {
     await provisionAdmin(prisma, env());
-    const before = await prisma.user.findUniqueOrThrow({ where: { email: "dona@estudio.example.com" } });
+    const before = await prisma.user.findUniqueOrThrow({ where: { email: "dona@garage.example.com" } });
 
     // Mesmo com outra ADMIN_PASSWORD no .env, o seed não troca a senha existente.
     const again = await provisionAdmin(prisma, env({ ADMIN_PASSWORD: "Outra-Senha-99", ADMIN_NAME: "Outro Nome" }));
     expect(again.status).toBe("existing");
 
-    const after = await prisma.user.findUniqueOrThrow({ where: { email: "dona@estudio.example.com" } });
+    const after = await prisma.user.findUniqueOrThrow({ where: { email: "dona@garage.example.com" } });
     expect(after).toEqual(before);
     expect(await prisma.user.count()).toBe(1);
   });
 
   it("e-mail que já é de uma CLIENTE: interrompe com erro, sem promover e sem tocar na senha", async () => {
     // Cenário do achado: alguém se cadastrou (sem verificação de e-mail) com o e-mail reservado ao administrador.
-    const squatter = await createClient({ email: "dona@estudio.example.com", password: "SenhaDoInvasor#1" });
+    const squatter = await createClient({ email: "dona@garage.example.com", password: "SenhaDoInvasor#1" });
     const before = await prisma.user.findUniqueOrThrow({ where: { id: squatter.id } });
 
     await expect(provisionAdmin(prisma, env())).rejects.toBeInstanceOf(AdminProvisioningError);
@@ -55,20 +55,20 @@ describe("Seed: conta administrativa (nunca promove nem altera conta existente)"
   });
 
   it("a mensagem de erro é clara e não expõe e-mail, senha nem hash", async () => {
-    const squatter = await createClient({ email: "dona@estudio.example.com", password: "SenhaDoInvasor#1" });
+    const squatter = await createClient({ email: "dona@garage.example.com", password: "SenhaDoInvasor#1" });
     const hash = (await prisma.user.findUniqueOrThrow({ where: { id: squatter.id } })).passwordHash;
     const err = await provisionAdmin(prisma, env()).catch((e) => e as Error);
     expect(err).toBeInstanceOf(AdminProvisioningError);
     expect(err.message).toMatch(/ADMIN_EMAIL/);
     expect(err.message).toMatch(/CLIENTE/);
-    for (const secret of ["Tulipa-Rosa-42", "SenhaDoInvasor#1", hash, "dona@estudio.example.com"]) {
+    for (const secret of ["Tulipa-Rosa-42", "SenhaDoInvasor#1", hash, "dona@garage.example.com"]) {
       expect(err.message).not.toContain(secret);
     }
   });
 
   it("compara o e-mail normalizado (caixa e espaços)", async () => {
-    await createClient({ email: "dona@estudio.example.com" });
-    await expect(provisionAdmin(prisma, env({ ADMIN_EMAIL: "  Dona@Estudio.EXAMPLE.com " }))).rejects.toBeInstanceOf(AdminProvisioningError);
+    await createClient({ email: "dona@garage.example.com" });
+    await expect(provisionAdmin(prisma, env({ ADMIN_EMAIL: "  Dona@Garage.EXAMPLE.com " }))).rejects.toBeInstanceOf(AdminProvisioningError);
   });
 
   it("corrida: cadastro público cria o e-mail entre a leitura e a criação -> reconfere e interrompe", async () => {
@@ -100,7 +100,7 @@ describe("Seed: conta administrativa (nunca promove nem altera conta existente)"
   });
 
   it("uma conta ADMIN criada à mão com outro e-mail não é afetada", async () => {
-    const other = await createAdmin({ email: "outra@estudio.example.com" });
+    const other = await createAdmin({ email: "outra@garage.example.com" });
     await provisionAdmin(prisma, env());
     expect((await prisma.user.findUniqueOrThrow({ where: { id: other.id } })).passwordHash).toBe(other.passwordHash);
     expect(await prisma.user.count({ where: { role: "ADMIN" } })).toBe(2);

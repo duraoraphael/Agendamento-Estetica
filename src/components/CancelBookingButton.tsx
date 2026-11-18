@@ -23,8 +23,8 @@ export function CancelBookingButton({ appointmentId, policyText }: { appointment
   }
 
   return (
-    <div className="mt-6 rounded-2xl border border-blush-deep/60 bg-white p-5">
-      <p className="text-sm text-plum-muted">{policyText}</p>
+    <div className="mt-6 rounded-2xl border border-line bg-surface p-5">
+      <p className="text-sm text-fg-muted">{policyText}</p>
 
       {error && (
         <p role="alert" className="mt-3 text-sm font-medium text-status-danger">
@@ -38,7 +38,7 @@ export function CancelBookingButton({ appointmentId, policyText }: { appointment
         </button>
       ) : (
         <div className="mt-4 space-y-3" role="group" aria-label="Confirmar cancelamento">
-          <p className="text-sm font-semibold text-plum">Tem certeza? O horário será liberado para outras clientes.</p>
+          <p className="text-sm font-semibold text-fg">Tem certeza? O horário será liberado para outras clientes.</p>
           <div className="flex flex-col gap-2 sm:flex-row">
             <button type="button" onClick={cancel} disabled={pending} className="btn-primary w-full sm:w-auto">
               {pending ? "Cancelando..." : "Sim, cancelar"}

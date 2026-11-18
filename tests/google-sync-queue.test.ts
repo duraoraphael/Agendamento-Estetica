@@ -3,7 +3,8 @@ import { resetDb, openAllWeek, createAdmin, createClient, createService, nextDay
 import { prisma } from "@/lib/db";
 import { encryptSecret } from "@/lib/crypto";
 import { __setCalendarFactoryForTests, eventIdForAppointment, nextSyncAttemptAt, MAX_AUTO_SYNC_ATTEMPTS } from "@/lib/google-calendar";
-import { createBooking, updateAppointmentStatus, cancelOwnBooking, retryGoogleSync } from "@/lib/booking";
+import { updateAppointmentStatus, cancelOwnBooking, retryGoogleSync } from "@/lib/booking";
+import { createBooking } from "./helpers";
 import { enqueueUnsyncedFuture, getSyncOverview, markPendingIfConnected, processGoogleSyncQueue } from "@/lib/google-sync-queue";
 import { makeFakeCalendar } from "./fake-calendar";
 

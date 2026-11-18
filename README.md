@@ -1,14 +1,52 @@
-# Agendamento Online — Studio de Manicure
+# Garage Zero Zero — Agendamento de estética automotiva
 
-Site completo de agendamento para uma manicure: clientes reservam horário pelo
-celular, e a administradora gerencia serviços, expediente, agendamentos e
-acompanha o faturamento.
+Plataforma de agendamento da **Garage Zero Zero** (estética automotiva premium): clientes escolhem o serviço, o dia e o
+horário, informam o veículo e confirmam pelo celular; a administração gerencia serviços, expediente, agendamentos,
+veículos atendidos e o faturamento. O projeto nasceu como um sistema de agendamento para manicure e foi **transformado por
+completo** em estética automotiva (identidade visual, textos, fluxo, banco e painel), sem perder nenhuma rota nem regra de
+segurança. Os valores internos dos papéis (`CLIENTE`/`ADMIN`) foram mantidos de propósito (evitam uma migração desnecessária).
+
+> **Nome:** GARAGE ZERO ZERO. **Logo:** `public/brand/logo.svg` (arquivo fornecido pela proprietária; não redesenhar).
+> **Fotos:** veja [docs/imagens.md](docs/imagens.md). **Fotos dos serviços (envio pelo painel, Supabase Storage):** veja [docs/fotos-servicos.md](docs/fotos-servicos.md). **Publicação:** veja [docs/publicacao.md](docs/publicacao.md).
+
+## Identidade visual (design system)
+
+Tema escuro com amarelo estratégico, definido num só lugar: `src/lib/theme.ts` (cores) → `tailwind.config.ts` (tokens) →
+`src/app/globals.css` (botões, campos, cartões, avisos, selos, esqueleto de carregamento).
+
+| Token | Valor | Uso |
+|---|---|---|
+| `ink` | `#090D10` | fundo principal |
+| `surface` / `surface-2` | `#11171B` / `#171E22` | fundo elevado e superfície secundária |
+| `brand` | `#FFCA05` (hover `#E9B800`) | CTAs, selecionados, filetes, bordas de destaque, ícones, palavras-chave dos títulos |
+| `fg` / `fg-muted` | `#F5F0DF` / `#B9BEC1` | texto e texto secundário |
+| `line` | `#2A3237` (forte `#6B777E`) | divisórias e bordas de campos |
+
+- **Fontes:** Inter (corpo e formulários) e **Barlow Condensed** (títulos: caixa alta, itálico, pesos 700/800), ambas pelo
+  `next/font` (servidas pelo próprio site). O Playfair Display saiu.
+- **Acessibilidade:** contraste WCAG AA (os pares estão documentados em `src/lib/theme.ts`), foco visível, alvos de toque de pelo
+  menos 44 px, rótulos visíveis, erros associados aos campos (`aria-describedby`), `prefers-reduced-motion` respeitado, link
+  "Pular para o conteúdo" e calendário com rótulos por extenso.
+- **Imagens:** `next/image` com `sizes` e dimensões fixas (sem salto de layout), em WebP. Hoje são placeholders escuros que você
+  troca pelas fotos reais sem mexer no código ([docs/imagens.md](docs/imagens.md)).
+
+## Rotas
+
+| Rota | Quem acessa | O que é |
+|---|---|---|
+| `/` | todos (cliente logada vai para a conta) | landing: abertura, agendamento rápido, serviços, diferenciais, contato |
+| `/servicos` | todos | serviços com descrição, duração, preço, benefícios e foto |
+| `/login`, `/cadastro`, `/recuperar-senha`, `/redefinir-senha` | visitantes | acesso (com mostrar/ocultar senha e callback seguro) |
+| `/agendar` → `/agendar/horario` → `/agendar/veiculo` → `/agendar/revisar` → `/agendar/confirmado/[id]` | cliente | fluxo de **4 etapas** (serviço, data e horário, veículo, revisão) e a confirmação |
+| `/meus-agendamentos`, `/meus-agendamentos/[id]`, `/meus-agendamentos/[id]/reagendar` | cliente | abas Próximos/Histórico, detalhe, cancelamento em duas etapas e reagendamento |
+| `/minha-conta`, `/minha-conta/veiculos`, `/minha-conta/veiculos/novo`, `/minha-conta/veiculos/[id]/editar` | cliente | dados pessoais, troca de senha, veículos |
+| `/admin/**` | administração | dashboard, agendamentos (com busca por cliente e placa), serviços, horários, faturamento, configurações, Google Agenda, logs |
 
 ## Stack escolhida
 
 O repositório estava vazio, então a stack foi escolhida do zero:
 
-- **Next.js 14 (App Router) + TypeScript** — front-end e back-end no mesmo
+- **Next.js 15 (App Router) + TypeScript** — front-end e back-end no mesmo
   projeto (páginas, Server Actions e rotas de API), SSR e layout mobile-first.
 - **Prisma ORM + PostgreSQL (Supabase, região São Paulo)** — banco relacional ÚNICO, com migrations
   versionadas em `prisma/migrations`. Restrições que o Prisma não modela (sem sobreposição de
@@ -101,7 +139,78 @@ Como administradora, logue em `/login` e acesse o painel:
   data e faixa de horário.
 
 O seed já cria um expediente padrão (terça a sábado, 09h–18h, almoço
-12h–13h) e 5 serviços de exemplo — ajuste como preferir.
+12h–13h) e os **7 serviços automotivos padrão** (Lavagem detalhada, Higienização interna, Polimento técnico, Cristalização de
+pintura, Vitrificação, Higienização de ar-condicionado e Limpeza e hidratação de couro). Os preços e as durações do seed são só
+**ponto de partida**: ajuste em `/admin/servicos`. O seed e a migração abaixo **nunca** sobrescrevem preço, duração ou estado de
+um serviço que já existe com o mesmo nome.
+
+## Migração dos dados da manicure (bancos que já existiam)
+
+Quem já tinha o sistema de manicure no Supabase roda, **depois** de `npm run db:deploy`:
+
+```bash
+npm run db:migrate-services -- --dry-run   # só mostra o que seria feito
+npm run db:migrate-services                # aplica
+```
+
+Comportamento (idempotente: rodar de novo não muda mais nada; coberto por `tests/service-migration.test.ts`):
+
+1. **Desativa** (`active = false`, sem apagar) apenas os serviços cujo nome é **exatamente** um dos 5 do seed antigo
+   (Manicure tradicional, Pedicure tradicional, Manicure + Pedicure, Esmaltação em gel, Alongamento de unhas), **mesmo que o preço
+   tenha sido editado**. Serviços personalizados (outros nomes) não são tocados.
+2. **Cadastra** os 7 serviços automotivos que ainda não existem (nome exato, ativo ou não). Nunca reativa nem altera um existente.
+3. Troca por vazio (= usar o padrão novo) só os textos do site (nome, slogan, apresentação) que ainda estão **idênticos** aos
+   padrões antigos. Contatos, endereço, Instagram e logo ficam como estão.
+4. **Não altera nenhum agendamento.** As reservas históricas continuam mostrando o serviço e o preço gravados nelas; por isso
+   reservas antigas ainda exibirão nomes como "Manicure tradicional" no histórico, e isso é intencional (o histórico não se reescreve).
+
+## Veículos e o fluxo de 4 etapas
+
+1. **Serviço** → 2. **Data e horário** (calendário mensal acessível; dias passados, fora do horizonte de 60 dias ou sem expediente
+ficam desativados; atualização silenciosa da lista; "próximo dia com horário"; conflito tratado se outra cliente ocupar o
+horário) → 3. **Veículo** (escolher um veículo da conta **ou cadastrar um novo na hora**, mais observações de até 500
+caracteres) → 4. **Revisão** (serviço, data, duração, valor, veículo com **placa parcialmente mascarada**, observações, local e
+política de cancelamento) → **Confirmação** (`/agendar/confirmado/[id]`, só para a dona da reserva).
+
+- **Obrigatório no servidor:** `createBooking` exige `vehicleId` e confere, dentro do `runLocked`, que o veículo é **da própria
+  cliente** (de outra pessoa responde como inexistente). A tela é só conveniência.
+- **Snapshot:** a reserva guarda uma cópia de marca, modelo e placa (`vehicle*Snapshot`). Editar ou apagar o veículo depois
+  **não altera** o histórico; reservas anteriores à atualização (sem veículo) continuam abrindo normalmente e mostram
+  "Veículo não informado — agendamento anterior à atualização".
+- **Placa:** guardada normalizada (maiúsculas, sem separadores); aceita o formato antigo (`ABC1234`) e o Mercosul (`ABC1D23`);
+  única por dona; validada por Zod **e** por `CHECK` no banco. Até 10 veículos por conta.
+- **Observações:** texto puro, até 500 caracteres, sem caracteres de controle/direção; ficam num cookie `httpOnly` de 30 min
+  entre as etapas (não na URL, para não irem para histórico e logs) e são validadas de novo ao confirmar. Sempre exibidas como
+  texto (o React escapa), nunca como HTML.
+- **Administração:** a lista de agendamentos mostra veículo e placa e tem **busca por cliente ou placa**; o evento do Google
+  Agenda da administração inclui modelo, placa e observações (o link "Salvar no Google Agenda" da cliente **não** leva a placa).
+
+## Reagendamento
+
+`/meus-agendamentos/[id]/reagendar`, só para reserva **confirmada e futura**, dentro da mesma antecedência do cancelamento
+(`CLIENT_CANCEL_MIN_HOURS`, padrão 24 h). Roda em `rescheduleOwnBooking` (`src/lib/booking.ts`), **numa transação sob o
+`BookingLock`**: revalida expediente, grade de 15 min, horizonte, bloqueios, outras reservas e a agenda do Google (consultada
+**antes**, sem rede dentro da transação), ignorando a própria reserva; mantém serviço, preço, duração e veículo; atualiza o
+**mesmo** evento do Google (ID determinístico) e grava a auditoria `booking_rescheduled`. É **atômico**: se falhar, o horário
+anterior permanece. O evento da própria reserva no Google não conta como "ocupado" (senão deslocar 30 minutos conflitaria com
+ela mesma). Coberto por `tests/booking-vehicle-reschedule.test.ts` (inclusive concorrência).
+
+## Recuperação e troca de senha
+
+- **Esqueci minha senha** (`/recuperar-senha`): resposta **idêntica** para qualquer e-mail (a busca da conta e o envio acontecem
+  depois da resposta, em `after()`, então nem o tempo revela se a conta existe); limite por e-mail (3 por 15 min) e por IP
+  (10, só com `TRUSTED_PROXY_HOPS`).
+- **Token:** 32 bytes aleatórios (CSPRNG); no banco fica **só o hash SHA-256**; validade de **30 minutos**; **uso único** (a
+  reivindicação é um `UPDATE` condicional, então duas requisições nunca passam as duas); pedir outro link invalida os anteriores;
+  nunca aparece em log, auditoria ou tela. O link usa `NEXTAUTH_URL` como base, **nunca** o cabeçalho `Host`.
+- **Redefinir** (`/redefinir-senha`): aplica a política de senha, limita as tentativas por IP e por link, troca a senha e **sobe
+  `User.sessionVersion`**, o que encerra **todas** as sessões abertas (as sessões conferem a versão no banco em `requireUser`).
+- **Troca logada** (`/minha-conta`): exige a **senha atual** (reautenticação), limita tentativas e também encerra as sessões.
+  Trocar o **e-mail** da conta **não** está disponível pela tela (exige verificação por e-mail): é uma pendência declarada.
+- **E-mail:** `src/lib/mailer.ts`. `MAIL_PROVIDER=none` (padrão) não envia nada, e a recuperação fica inoperante até você
+  configurar um provedor, **sem** mostrar o link em lugar nenhum. `MAIL_PROVIDER=resend` usa a API HTTPS do Resend, sem
+  dependência nova: defina `RESEND_API_KEY` e `MAIL_FROM` (domínio verificado) e `NEXTAUTH_URL` com o endereço público. Para
+  SMTP ou outro provedor, implemente `MailTransport` e registre em `transports`.
 
 ## Conectar o Google Agenda
 
@@ -189,7 +298,7 @@ npm test
 Os testes rodam contra um **PostgreSQL real, embutido e descartável** (sem Docker; as mesmas
 migrations que vão para o Supabase, recriadas do zero a cada execução — veja `tests/global-setup.ts`),
 não contra mocks e **nunca contra o Supabase** (`resetDb()` recusa qualquer banco que não seja local).
-Cobertura (__TESTES__ testes; 26 testes de tela no e2e):
+Cobertura (364 testes automatizados em 32 arquivos; 42 testes de tela no e2e, nos dois tamanhos de tela):
 
 | Cenário pedido | Onde está testado |
 |---|---|
@@ -202,6 +311,11 @@ Cobertura (__TESTES__ testes; 26 testes de tela no e2e):
 | Liberação após cancelamento | `tests/booking.test.ts` — cancelar libera o horário para uma nova cliente |
 | Preservação do preço histórico | `tests/booking.test.ts` — alterar o preço do serviço não afeta reservas já criadas |
 | Faturamento nos três períodos | `tests/billing.test.ts` — diário/semanal/mensal, excluindo canceladas e faltas, por serviço |
+| Veículos: placas (antigo e Mercosul), validação, IDOR, unicidade, limite, snapshot no histórico | `tests/vehicles.test.ts`, `tests/booking-vehicle-reschedule.test.ts` |
+| Reagendamento: atômico, concorrência, política de antecedência, evento do Google atualizado sem falso conflito, auditoria sem PII | `tests/booking-vehicle-reschedule.test.ts` |
+| Recuperação e troca de senha: token só em hash, uso único (inclusive em paralelo), expiração, sessões encerradas, sem token em log | `tests/password-reset.test.ts` |
+| Migração dos dados de manicure: nome exato, idempotente, nada apagado, histórico intacto | `tests/service-migration.test.ts` |
+| Busca do painel por cliente e placa | `tests/admin-search.test.ts` |
 | Integridade das reservas (grade de 15 min, horizonte de 60 dias, antecedência, datas inválidas, status inválido, CONCLUIDA só após o horário, cancelar → reservar → reativar, concorrência de criação e reativação) | `tests/booking-integrity.test.ts` |
 | Google Agenda com integração **simulada** (sucesso, timeout com resposta perdida, falha 500, repetição sem duplicar, conflito de ID, indisponibilidade bloqueando confirmação/reativação/listagem) | `tests/google-sync.test.ts` |
 | Limite de tentativas, IP atrás de proxy, resposta uniforme do cadastro, política de senha em bytes UTF-8, limites de tamanho, datas de filtros, cabeçalhos de segurança | `tests/auth-hardening.test.ts` |
@@ -230,10 +344,14 @@ integração desligada, exatamente como ela se comporta sem credenciais.
 | `npm run build` / `npm start` | Build e execução em produção |
 | `npm run db:migrate` | Cria uma NOVA migration a partir de mudanças no schema (desenvolvimento; usa o banco do `.env`) |
 | `npm run db:deploy` | Aplica as migrations existentes no banco do `DIRECT_URL` (Supabase), sem gerar novas |
-| `npm run db:seed` | Cria a admin, expediente padrão e serviços de exemplo |
+| `npm run db:seed` | Cria a admin, o expediente padrão e os 7 serviços automotivos padrão (só os que faltam) |
 | `npm run db:studio` | Interface visual do banco (Prisma Studio) |
 | `npm test` | Roda a suíte de testes automatizados |
 | `npm run db:check-overlaps` | Relatório somente leitura: sobreposições, situações inválidas, órfãos, clientes acima do limite |
+| `npm run db:migrate-services` | Migra os dados de manicure (desativa os serviços antigos pelo nome exato e cadastra os automotivos). `-- --dry-run` só simula |
+| `npm run images:optimize -- <pasta>` | Converte as fotos geradas para WebP nos tamanhos finais ([docs/imagens.md](docs/imagens.md)) |
+| `npm run storage:setup` | Cria o bucket público `service-images` no Supabase Storage (idempotente; precisa de `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY`) ([docs/fotos-servicos.md](docs/fotos-servicos.md)) |
+| `npm run storage:cleanup` | Apaga do Storage os arquivos de fotos que ficaram pendentes de remoção |
 | `npm run test:e2e` | Testes de tela (Edge, desktop e 390 px; PostgreSQL embutido próprio) |
 | `npm run db:backup` · `npm run db:restore` | Backup (`pg_dump`) com retenção · restauração (`pg_restore`) |
 | `npm run lint` | ESLint |
@@ -241,8 +359,8 @@ integração desligada, exatamente como ela se comporta sem credenciais.
 ## Estrutura do projeto
 
 ```
-prisma/schema.prisma      Modelos do banco (usuários, serviços, expediente,
-                           bloqueios, agendamentos, conta do Google)
+prisma/schema.prisma      Modelos do banco (usuários, veículos, serviços, expediente,
+                           bloqueios, agendamentos, recuperação de senha, conta do Google)
 prisma/seed.ts             Script de inicialização (admin, expediente, serviços)
 scripts/                   Utilitários de manutenção (check-overlaps.ts)
 src/lib/                   Regras de negócio (disponibilidade, reservas,
@@ -294,13 +412,11 @@ hashes SHA-256, o e-mail/IP não ficam em claro). Os valores estão em
 
 O cadastro responde **igual** (status 200, mesmo corpo e mesmo custo de tempo) para
 e-mail novo e e-mail já cadastrado, e não entra automaticamente: a cliente vê "Cadastro
-recebido" e usa **Entrar**. **Risco residual:** sem confirmação por e-mail não há como avisar
-a dona de um e-mail de que alguém tentou cadastrá-lo, nem impedir que alguém crie uma conta
-com e-mail alheio. Para resolver é preciso um provedor de e-mail transacional (SMTP/API) e o
-fluxo "confirmar e-mail para ativar a conta" + "esqueci minha senha". Esses fluxos **não existem
-hoje**; não há troca de senha no site, então a política de senha abaixo vale para o cadastro e
-para a senha da conta administrativa criada no seed (e deve ser reutilizada, via `passwordSchema`,
-quando a troca/recuperação for criada).
+recebido" e usa **Entrar**. O cadastro exige o **consentimento** de uso dos dados (LGPD), conferido também no servidor.
+**Risco residual:** sem confirmação por e-mail não há como avisar a dona de um e-mail de que alguém tentou cadastrá-lo, nem
+impedir que alguém crie uma conta com e-mail alheio. O fluxo "esqueci minha senha" **existe** (veja "Recuperação e troca de
+senha") e a política de senha abaixo vale para o cadastro, a redefinição e a troca (`passwordSchema`); o que **continua faltando**
+é o fluxo "confirmar e-mail para ativar a conta" (precisa do provedor de e-mail configurado).
 
 ### Logs (trilha de auditoria) — `/admin/logs`
 
@@ -323,7 +439,7 @@ altere ou apague.
 - **O que nunca é gravado:** senha, token, cookie, chave, segredo OAuth, corpo de requisição, e-mail, nome e celular.
   Pessoas aparecem só como ID interno (o nome é buscado na hora de exibir) ou, em tentativa sem conta identificada, como
   hash curto do e-mail. O motivo digitado em bloqueios de horário e os textos das Configurações também não entram.
-- **Não existem no site** (por isso não há aba nem registro): **Entrada/Saída** (check-in/check-out) e **remarcação**.
+- **Não existe no site** (por isso não há aba nem registro): **Entrada/Saída** (check-in/check-out). A **remarcação** pela cliente existe e aparece em "Marcação"; veículos e dados da conta aparecem em "Cadastro" e a recuperação/troca de senha em "Login", sempre só com IDs internos (nunca placa, nome, e-mail, celular ou token).
   Mudar a situação de uma reserva (concluída, falta...) aparece em "Marcação".
 - **Limite do histórico:** o registro começa quando a migração é aplicada. Antes disso só havia linhas JSON no console
   (`securityLog`), que não foram migradas; nada foi reconstruído a partir de dados antigos (não dá para saber quem fez o
@@ -372,7 +488,7 @@ principal, use `NEXT_DIST_DIR=.next-teste` (veja abaixo).
 - **Consulta de disponibilidade** (`freebusy`) é feita **antes** da transação de reserva e
   nunca dentro dela. Se a agenda está **conectada** e a consulta falha (rede, token, resposta
   sem dados), a confirmação, a reativação e a listagem de horários são **recusadas** com a
-  mensagem "Não foi possível verificar a agenda do estúdio agora. Tente novamente…". Com a
+  mensagem "Não foi possível verificar a agenda da Garage Zero Zero agora. Tente novamente…". Com a
   integração desativada, a agenda interna é usada normalmente.
 - **Janela de concorrência:** entre a consulta ao Google e o `COMMIT` (milissegundos a poucos
   segundos), um compromisso criado diretamente no Google nesse intervalo não é visto. A
@@ -444,7 +560,7 @@ O cancelamento pela cliente preserva o histórico (situação passa a "Cancelada
 - **Testes de tela:** `npm run test:e2e` (Playwright com o Edge instalado; desktop e 390 px; capturas em `e2e/screenshots/`).
 - **Lint:** `npm run lint` (ESLint 9 + config do Next).
 
-## Configurações do estúdio, Google Agenda e horários livres
+## Configurações da empresa, Google Agenda e horários livres
 
 - **Configurações** (`/admin/configuracoes`, só administradora): nome, slogan, apresentação, logo, telefone, WhatsApp,
   Instagram, endereço e instruções de chegada. Ficam no banco (`SiteSettings`; a logo em `SiteLogo`, no banco para

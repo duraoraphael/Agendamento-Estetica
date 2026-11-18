@@ -6,12 +6,11 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        blush: palette.blush,
-        cream: palette.cream,
-        wine: palette.wine,
-        plum: palette.plum,
-        gold: palette.gold,
-        neutral: palette.neutral,
+        ink: palette.ink,
+        surface: palette.surface,
+        brand: palette.brand,
+        fg: palette.fg,
+        line: palette.line,
         status: {
           confirmed: palette.status.confirmed.fg,
           "confirmed-bg": palette.status.confirmed.bg,
@@ -23,20 +22,21 @@ const config: Config = {
           "noshow-bg": palette.status.noshow.bg,
           danger: palette.status.danger.fg,
           "danger-bg": palette.status.danger.bg,
+          "danger-solid": palette.status.danger.solid,
         },
       },
       fontFamily: {
         sans: ["var(--font-sans)", "system-ui", "sans-serif"],
-        display: ["var(--font-display)", "Georgia", "serif"],
+        display: ["var(--font-display)", "Impact", "Arial Narrow", "sans-serif"],
       },
       borderRadius: {
-        xl: "1rem",
-        "2xl": "1.5rem",
-        "3xl": "2rem",
+        xl: "0.75rem",
+        "2xl": "1rem",
+        "3xl": "1.25rem",
       },
       boxShadow: {
-        soft: "0 1px 2px rgba(52,35,45,0.04), 0 8px 24px -12px rgba(139,49,87,0.18)",
-        lift: "0 2px 4px rgba(52,35,45,0.05), 0 16px 32px -14px rgba(139,49,87,0.28)",
+        soft: "0 1px 2px rgba(0,0,0,0.4), 0 8px 24px -12px rgba(0,0,0,0.6)",
+        lift: "0 2px 4px rgba(0,0,0,0.5), 0 16px 32px -14px rgba(255,202,5,0.25)",
       },
       spacing: {
         section: "5rem",

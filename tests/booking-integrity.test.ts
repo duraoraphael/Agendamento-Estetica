@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb, openAllWeek, createClient, createService, nextDayAt, dateKeyDaysAhead } from "./helpers";
 import { prisma } from "@/lib/db";
-import { createBooking, updateAppointmentStatus, BookingConflictError, BookingValidationError } from "@/lib/booking";
+import { updateAppointmentStatus, BookingConflictError, BookingValidationError } from "@/lib/booking";
+import { createBooking } from "./helpers";
 import { generateSlotCandidatesForDate, isSlotAvailable } from "@/lib/availability";
 import { getBillingSummary } from "@/lib/billing";
 import { dateKeyInTz } from "@/lib/format";

@@ -85,6 +85,26 @@ async function getDayWindows(dateKey: string, db: Db): Promise<Interval[]> {
 }
 
 /**
+ * Janelas em que um serviço de `durationMinutes` pode ser atendido.
+ *
+ * Regra geral: o almoço divide o dia e o serviço precisa caber inteiro antes OU depois dele.
+ * Exceção para serviços LONGOS: se o serviço é mais longo que o menor turno do dia (ex.: almoço 12h–13h num expediente
+ * 09h–18h deixa turnos de 3 h e 5 h; um serviço de 4 h ou 5 h não cabe nos dois), o almoço deixa de bloquear e ele pode
+ * atravessá-lo. A janela passa a ser o expediente inteiro (abertura até fechamento) e cada início de 15 em 15 minutos
+ * que cabe e não conflita com reservas, bloqueios ou a agenda externa é oferecido, como acontece com os serviços curtos.
+ * Serviço que cabe em todos os turnos (ou dia sem almoço, ou com um turno só) segue a regra geral, sem mudança.
+ *
+ * Listar e confirmar usam esta MESMA função (veja generateSlotCandidatesForDate e isSlotAvailable).
+ */
+async function getServiceWindows(dateKey: string, durationMinutes: number, db: Db): Promise<Interval[]> {
+  const turns = await getDayWindows(dateKey, db);
+  if (turns.length < 2) return turns;
+  const shortestTurnMinutes = Math.min(...turns.map((w) => (w.end.getTime() - w.start.getTime()) / 60_000));
+  if (durationMinutes <= shortestTurnMinutes) return turns;
+  return [{ start: turns[0].start, end: turns[turns.length - 1].end }];
+}
+
+/**
  * Intervalos ocupados no dia: bloqueios pontuais + agendamentos ativos + os
  * intervalos da agenda externa (`externalBusy`), já consultada ANTES da
  * transação pelo chamador (nunca fazemos chamada de rede aqui dentro).
@@ -172,6 +192,8 @@ export async function generateSlotsForDate(
 export interface SlotListOptions {
   /** Aceita a resposta em cache (15 s) da agenda externa. SÓ para listar; confirmar nunca usa. */
   cacheExternal?: boolean;
+  /** Reagendamento: ignora esta reserva (a própria cliente) ao calcular o que está ocupado. */
+  excludeAppointmentId?: string;
 }
 
 export async function generateSlotCandidatesForDate(
@@ -182,7 +204,7 @@ export async function generateSlotCandidatesForDate(
 ): Promise<SlotCandidate[]> {
   if (!isValidDateKey(dateKey)) return [];
 
-  const windows = await getDayWindows(dateKey, db);
+  const windows = await getServiceWindows(dateKey, durationMinutes, db);
   if (windows.length === 0) return [];
 
   const day = dayRangeUtc(dateKey);
@@ -193,7 +215,7 @@ export async function generateSlotCandidatesForDate(
   // A agenda local (banco) e a externa (Google, rede) são independentes: consultadas ao mesmo tempo.
   const [external, local] = await Promise.all([
     fetchExternalBusy(day.start, day.end, db, { allowCache: opts.cacheExternal }),
-    busyBetween(day.start, day.end, db, undefined, []),
+    busyBetween(day.start, day.end, db, opts.excludeAppointmentId, []),
   ]);
   const busy = [...local, ...external];
   const now = new Date();
@@ -236,7 +258,7 @@ export async function isSlotAvailable(
   if (Number.isNaN(startAt.getTime())) return false;
 
   const dateKey = dateKeyInTz(startAt);
-  const windows = await getDayWindows(dateKey, db);
+  const windows = await getServiceWindows(dateKey, durationMinutes, db);
   const endAt = addMinutes(startAt, durationMinutes);
 
   const window = windows.find((w) => startAt >= w.start && endAt <= w.end);

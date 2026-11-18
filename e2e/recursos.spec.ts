@@ -5,6 +5,7 @@ import bcrypt from "bcryptjs";
 import { expect, test, type Browser, type Page, type TestInfo } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { E2E_DATABASE_URL, E2E_ENV, E2E_PORT } from "../playwright.config";
+import { completeVehicleStep, pickDay, showDay } from "./helpers";
 
 /**
  * Verificação de tela dos recursos novos: Configurações (nome, logo, contatos), horários livres (sobreposição
@@ -57,8 +58,8 @@ async function check(page: Page, info: TestInfo, name: string) {
 
 async function login(page: Page, email: string, password: string) {
   await page.goto("/login");
-  await page.getByLabel("E-mail").fill(email);
-  await page.getByLabel("Senha").fill(password);
+  await page.getByLabel("E-mail", { exact: true }).fill(email);
+  await page.getByLabel("Senha", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Entrar" }).click();
   await page.waitForURL((u) => !u.pathname.startsWith("/login"));
 }
@@ -88,7 +89,7 @@ async function clientPage(browser: Browser, info: TestInfo, client: { email: str
 
 const spKey = (d: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(d);
 
-/** Dia útil (ter–sex) a partir de `ahead` dias, no horário do estúdio, às `hour`:`minute`, como ISO UTC. */
+/** Dia útil (ter–sex) a partir de `ahead` dias, no horário do negócio, às `hour`:`minute`, como ISO UTC. */
 function slotIso(ahead: number, hour: number, minute = 0): string {
   const base = new Date();
   for (let i = ahead; i < ahead + 14; i++) {
@@ -101,10 +102,6 @@ function slotIso(ahead: number, hour: number, minute = 0): string {
   throw new Error("sem dia útil");
 }
 
-/** Posição do dia na lista de dias da tela de horários (0 = hoje). */
-function dayIndex(iso: string): number {
-  return Math.round((Date.parse(spKey(new Date(iso))) - Date.parse(spKey(new Date()))) / 86_400_000);
-}
 
 async function insertAppointment(clientId: string, startIso: string, serviceName: string, status = "CONFIRMADA") {
   const svc = await prisma.service.findFirstOrThrow({ where: { name: serviceName } });
@@ -122,7 +119,7 @@ const slot = (page: Page, hhmm: string) => page.getByRole("button", { name: hhmm
 async function openPicker(page: Page, serviceName: string, iso: string) {
   const svc = await prisma.service.findFirstOrThrow({ where: { name: serviceName } });
   await page.goto(`/agendar/horario?serviceId=${svc.id}`);
-  await page.locator("fieldset button").nth(dayIndex(iso)).click();
+  await pickDay(page, spKey(new Date(iso)));
   return svc;
 }
 
@@ -167,23 +164,23 @@ const state: { studio?: string; address?: string; notes?: string; ahead?: number
 // ---------- Configurações ----------
 test("administradora: edita nome, logo e contatos; prévia, erros, persistência e aplicação no site", async ({ page, browser }, info) => {
   watch(page);
-  state.studio = `Estúdio Ação & Çé #${info.project.name === "desktop" ? "D" : "M"}${stamp}`;
+  state.studio = `Garage Ação & Çé #${info.project.name === "desktop" ? "D" : "M"}${stamp}`;
   state.address = "Rua das Flores, 123 — Centro, São Paulo/SP";
-  state.notes = "Sala 12 & interfone #3 (2º andar)";
+  state.notes = "Portão preto & interfone #3 (nos fundos)";
 
   await login(page, ADMIN.email, ADMIN.password);
   await page.getByRole("navigation", { name: "Painel" }).getByRole("link", { name: "Configurações", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Configurações", level: 1 })).toBeVisible();
   await expect(page.getByText(/PNG, JPEG ou WebP, até 512 KB/)).toBeVisible(); // orientação de dimensões e formato
 
-  await page.getByLabel("Nome do site ou estúdio", { exact: true }).fill(state.studio);
-  await page.getByLabel("Slogan", { exact: true }).fill("Unhas & cuidado");
+  await page.getByLabel("Nome da empresa", { exact: true }).fill(state.studio);
+  await page.getByLabel("Slogan", { exact: true }).fill("Brilho & cuidado");
   await page.getByLabel("Texto curto de apresentação").fill("Atendimento com hora marcada e muito carinho.");
   await page.getByLabel("Telefone", { exact: true }).fill("(11) 3000-1234");
   await page.getByLabel("WhatsApp", { exact: true }).fill("(11) 91234-5678");
   await page.getByLabel("Instagram", { exact: true }).fill("@studio.e2e");
   await page.getByLabel("Endereço", { exact: true }).fill(state.address);
-  await page.getByLabel("Instruções de localização").fill(state.notes);
+  await page.getByLabel("Instruções de chegada").fill(state.notes);
   await expect(page.getByLabel("Prévia da identidade visual")).toContainText(state.studio); // prévia ao vivo
 
   // Erros: formatos/tamanhos recusados na tela e, mesmo burlando a tela, no servidor.
@@ -223,7 +220,7 @@ test("administradora: edita nome, logo e contatos; prévia, erros, persistência
 
   // Persistência e cabeçalho do painel.
   await page.reload();
-  await expect(page.getByLabel("Nome do site ou estúdio", { exact: true })).toHaveValue(state.studio);
+  await expect(page.getByLabel("Nome da empresa", { exact: true })).toHaveValue(state.studio);
   await expect(page.getByLabel("Endereço", { exact: true })).toHaveValue(state.address);
   await expect(page.getByLabel("Instagram", { exact: true })).toHaveValue("https://www.instagram.com/studio.e2e");
   await expect(page.getByRole("banner").getByText(state.studio)).toBeVisible();
@@ -239,7 +236,7 @@ test("administradora: edita nome, logo e contatos; prévia, erros, persistência
   await expect(vp.getByRole("banner").getByText(state.studio)).toBeVisible();
   await expect(vp.getByRole("banner").locator('img[src^="/api/logo?v="]')).toBeVisible();
   await vp.goto("/");
-  await expect(vp.getByText("Unhas & cuidado").first()).toBeVisible();
+  await expect(vp.getByText("Brilho & cuidado").first()).toBeVisible();
   await expect(vp.getByText("Atendimento com hora marcada e muito carinho.")).toBeVisible();
   await expect(vp.getByRole("link", { name: /WhatsApp: \(11\) 91234-5678/ })).toHaveAttribute("href", "https://wa.me/5511912345678");
   await expect(vp.getByRole("link", { name: /instagram/i }).first()).toHaveAttribute("href", "https://www.instagram.com/studio.e2e");
@@ -268,10 +265,10 @@ test("cliente: lista só horários livres (sobreposição parcial), confirma e s
   const mine = await newClient("cliente", info);
   state.clientId = mine.id;
   const busyIso = slotIso(state.ahead, 14); // atendimento das 14h às 15h (60 min)
-  await insertAppointment(occupant.id, busyIso, "Esmaltação em gel");
+  await insertAppointment(occupant.id, busyIso, "Higienização de ar-condicionado");
 
   const { ctx, page } = await clientPage(browser, info, mine);
-  await openPicker(page, "Esmaltação em gel", busyIso);
+  await openPicker(page, "Higienização de ar-condicionado", busyIso);
 
   // 13h livre (termina às 14h) e 15h livre; 13h15, 13h30, 14h, 14h30 e 14h45 não cabem.
   await expect(slot(page, "13:00")).toBeVisible();
@@ -281,22 +278,23 @@ test("cliente: lista só horários livres (sobreposição parcial), confirma e s
   await check(page, info, "24-horarios-so-livres");
 
   // Troca de serviço: 120 min não cabem às 13h (terminaria às 15h, dentro da reserva).
-  const longSvc = await prisma.service.findFirstOrThrow({ where: { name: "Alongamento de unhas" } });
+  const longSvc = await prisma.service.findFirstOrThrow({ where: { name: "Lavagem detalhada" } });
   await page.goto(`/agendar/horario?serviceId=${longSvc.id}`);
-  await page.locator("fieldset button").nth(dayIndex(busyIso)).click();
+  await pickDay(page, spKey(new Date(busyIso)));
   await expect(slot(page, "15:00")).toBeVisible();
   await expect(slot(page, "13:00")).toHaveCount(0);
 
   // Fluxo completo com o serviço de 60 min às 15h.
-  await openPicker(page, "Esmaltação em gel", busyIso);
+  await openPicker(page, "Higienização de ar-condicionado", busyIso);
   await slot(page, "15:00").click();
   await expect(page.getByText("Horário escolhido:")).toContainText("15:00");
   await page.getByRole("button", { name: "Continuar" }).click();
+  await completeVehicleStep(page);
   await expect(page).toHaveURL(/\/agendar\/revisar/);
   await expect(page.getByRole("region", { name: "Local do atendimento" })).toContainText(state.address!);
   await page.getByRole("button", { name: "Confirmar agendamento" }).click();
-  await expect(page).toHaveURL(/\/meus-agendamentos\?confirmado=/);
-  await expect(page.getByText("Agendamento confirmado")).toBeVisible();
+  await expect(page).toHaveURL(/\/agendar\/confirmado\//);
+  await expect(page.getByRole("heading", { level: 1 })).toContainText(/Agendamento\s+confirmado/i);
 
   const appt = await prisma.appointment.findFirstOrThrow({ where: { clientId: mine.id, status: "CONFIRMADA" } });
   state.apptId = appt.id;
@@ -309,13 +307,13 @@ test("cliente: lista só horários livres (sobreposição parcial), confirma e s
   await expect(page.getByText(/confirma o salvamento na sua conta/)).toBeVisible();
   const href = (await btn.getAttribute("href"))!;
   expect(href.startsWith("https://calendar.google.com/calendar/render?")).toBe(true);
-  expect(href).toContain("%26"); // o "&" do nome do estúdio foi codificado, não quebrou a URL
+  expect(href).toContain("%26"); // o "&" do nome do negócio foi codificado, não quebrou a URL
   expect(href).not.toMatch(/[\s"<>]/);
   const q = new URL(href).searchParams;
   const ref = appt.id.slice(-8).toUpperCase();
   const compact = (d: Date) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
   expect(q.get("action")).toBe("TEMPLATE");
-  expect(q.get("text")).toBe(`Esmaltação em gel — ${state.studio}`);
+  expect(q.get("text")).toBe(`Higienização de ar-condicionado — ${state.studio}`);
   expect(q.get("dates")).toBe(`${compact(appt.startAt)}/${compact(appt.endAt)}`); // 15:00–16:00 de São Paulo = 18:00Z–19:00Z
   expect(q.get("dates")).toMatch(/T180000Z\/\d{8}T190000Z$/);
   expect(q.get("ctz")).toBe(TZ);
@@ -336,7 +334,7 @@ test("cliente: lista só horários livres (sobreposição parcial), confirma e s
   // Reserva passada ou cancelada não oferece o botão.
   // Dias diferentes por projeto: os dois compartilham o banco e o PostgreSQL recusa reservas ativas sobrepostas.
   const pastDays = info.project.name === "desktop" ? 3 : 5;
-  const past = await insertAppointment(mine.id, new Date(Date.now() - pastDays * 86_400_000).toISOString(), "Esmaltação em gel", "CONCLUIDA");
+  const past = await insertAppointment(mine.id, new Date(Date.now() - pastDays * 86_400_000).toISOString(), "Higienização de ar-condicionado", "CONCLUIDA");
   await page.goto(`/meus-agendamentos/${past.id}`);
   await expect(page.getByRole("link", { name: /Salvar no Google Agenda/ })).toHaveCount(0);
 
@@ -349,12 +347,12 @@ test("cancelar libera o horário; faturamento e agenda da administradora acompan
   const day = spKey(new Date(slotIso(state.ahead!, 15)));
   const mineRow = await prisma.user.findUniqueOrThrow({ where: { id: state.clientId! } });
 
-  // Administradora vê a reserva na agenda e no faturamento (previsto = 60,00 da ocupante + 60,00 desta cliente).
+  // Administradora vê a reserva na agenda e no faturamento (previsto = 150,00 da ocupante + 150,00 desta cliente).
   await login(adminPage, ADMIN.email, ADMIN.password);
   await adminPage.goto(`/admin/agendamentos?from=${day}&to=${day}`);
   await expect(adminPage.getByText(mineRow.name).first()).toBeVisible();
   await adminPage.goto(`/admin/faturamento?kind=DIARIO&ref=${day}`);
-  await expect(adminPage.getByText(/R\$\s*120,00/).first()).toBeVisible();
+  await expect(adminPage.getByText(/R\$\s*300,00/).first()).toBeVisible(); // 2 x R$ 150,00 (serviço de 60 min)
 
   // A cliente cancela pela interface.
   const { ctx, page } = await clientPage(browser, info, mineRow);
@@ -366,14 +364,14 @@ test("cancelar libera o horário; faturamento e agenda da administradora acompan
   expect((await prisma.appointment.findUniqueOrThrow({ where: { id: state.apptId! } })).status).toBe("CANCELADA");
 
   // O horário volta para a lista (a mesma cliente, e outra cliente).
-  await openPicker(page, "Esmaltação em gel", slotIso(state.ahead!, 15));
+  await openPicker(page, "Higienização de ar-condicionado", slotIso(state.ahead!, 15));
   await expect(slot(page, "15:00")).toBeVisible();
   await ctx.close();
 
   // Faturamento já reflete o cancelamento (somente a ocupante, 60,00).
   await adminPage.goto(`/admin/faturamento?kind=DIARIO&ref=${day}`);
-  await expect(adminPage.getByText(/R\$\s*60,00/).first()).toBeVisible();
-  await expect(adminPage.getByText(/R\$\s*120,00/)).toHaveCount(0);
+  await expect(adminPage.getByText(/R\$\s*150,00/).first()).toBeVisible();
+  await expect(adminPage.getByText(/R\$\s*300,00/)).toHaveCount(0);
   await check(adminPage, info, "27-faturamento-apos-cancelar");
   expectClean(adminPage);
 });
@@ -387,9 +385,10 @@ test("duas clientes disputando o mesmo horário: só uma confirma; a outra vê a
 
   // As duas chegam à tela de revisão com o mesmo horário (ambas o viam livre).
   for (const { page } of [A, B]) {
-    await openPicker(page, "Esmaltação em gel", iso);
+    await openPicker(page, "Higienização de ar-condicionado", iso);
     await slot(page, "16:00").click();
     await page.getByRole("button", { name: "Continuar" }).click();
+    await completeVehicleStep(page);
     await expect(page).toHaveURL(/\/agendar\/revisar/);
   }
 
@@ -399,10 +398,10 @@ test("duas clientes disputando o mesmo horário: só uma confirma; a outra vê a
     B.page.getByRole("button", { name: "Confirmar agendamento" }).click(),
   ]);
   await Promise.all([
-    A.page.waitForURL(/\/meus-agendamentos\?confirmado=|\/agendar\/horario\?.*conflito=1/),
-    B.page.waitForURL(/\/meus-agendamentos\?confirmado=|\/agendar\/horario\?.*conflito=1/),
+    A.page.waitForURL(/\/agendar\/confirmado\/|\/agendar\/horario\?.*conflito=1/),
+    B.page.waitForURL(/\/agendar\/confirmado\/|\/agendar\/horario\?.*conflito=1/),
   ]);
-  const winners = [A, B].filter(({ page }) => page.url().includes("confirmado="));
+  const winners = [A, B].filter(({ page }) => page.url().includes("/agendar/confirmado/"));
   const losers = [A, B].filter(({ page }) => page.url().includes("conflito=1"));
   expect(winners).toHaveLength(1);
   expect(losers).toHaveLength(1);
@@ -410,7 +409,7 @@ test("duas clientes disputando o mesmo horário: só uma confirma; a outra vê a
 
   const loser = losers[0].page;
   await expect(loser.getByText(/Esse horário não está mais disponível/)).toBeVisible();
-  await loser.locator("fieldset button").nth(dayIndex(iso)).click();
+  await pickDay(loser, spKey(new Date(iso)));
   await expect(slot(loser, "17:00")).toBeVisible();
   await expect(slot(loser, "16:00")).toHaveCount(0); // a lista já vem sem o horário perdido
   await check(loser, info, "28-corrida-aviso");
@@ -419,23 +418,32 @@ test("duas clientes disputando o mesmo horário: só uma confirma; a outra vê a
   await slot(loser, "17:00").click();
   await expect(loser.getByText("Horário escolhido:")).toContainText("17:00");
   const other = await newClient("corrida-c", info);
-  await insertAppointment(other.id, slotIso(state.ahead!, 17), "Esmaltação em gel");
+  await insertAppointment(other.id, slotIso(state.ahead!, 17), "Higienização de ar-condicionado");
   await loser.evaluate(() => window.dispatchEvent(new Event("focus"))); // o que acontece ao voltar para a aba
   await expect(loser.getByText(/O horário das 17:00 acabou de ser ocupado/)).toBeVisible();
   await expect(loser.getByText("Escolha um horário para continuar.")).toBeVisible();
   await expect(slot(loser, "17:00")).toHaveCount(0);
   await expect(loser.getByRole("button", { name: "Continuar" })).toBeDisabled();
 
-  // Dia sem expediente: mensagem pedida e atalho para outra data.
-  const closedIdx = Array.from({ length: 30 }, (_, i) => i).find((i) => {
-    const d = new Date(Date.parse(spKey(new Date())) + i * 86_400_000);
-    return d.getUTCDay() === 1; // segunda-feira: sem atendimento no expediente padrão
-  })!;
-  await loser.locator("fieldset button").nth(closedIdx).click();
+  // Dia sem expediente (segunda-feira): a data fica DESATIVADA no calendário.
+  const monday = Array.from({ length: 14 }, (_, i) => new Date(Date.parse(spKey(new Date())) + (i + 1) * 86_400_000)).find((d) => d.getUTCDay() === 1)!;
+  const mondayKey = monday.toISOString().slice(0, 10);
+  await expect(await showDay(loser, mondayKey)).toBeDisabled();
+
+  // Dia com expediente mas totalmente bloqueado (feriado): mensagem pedida e atalho para o próximo dia com vaga.
+  // Dia fixo no fim do horizonte (+55..+59 dias): nenhum outro teste usa essa faixa (os dois projetos dividem o banco), e é
+  // diferente do dia já selecionado.
+  const blockedKey = spKey(new Date(slotIso(55, 12)));
+  const [by, bm, bd] = blockedKey.split("-").map(Number);
+  await prisma.blockedPeriod.create({
+    data: { startAt: new Date(Date.UTC(by, bm - 1, bd, 3, 0)), endAt: new Date(Date.UTC(by, bm - 1, bd + 1, 3, 0)), reason: "Feriado (teste)" },
+  });
+  await pickDay(loser, blockedKey);
   await expect(loser.getByText("Sem horários disponíveis neste dia")).toBeVisible();
   await loser.getByRole("button", { name: "Ver próximo dia com horários" }).click();
-  await expect(loser.locator("fieldset button[aria-pressed='true']")).not.toHaveText(await loser.locator("fieldset button").nth(closedIdx).innerText());
+  await expect(loser.locator("[data-date][aria-pressed='true']")).not.toHaveAttribute("data-date", blockedKey);
   await check(loser, info, "29-sem-horarios");
+  await prisma.blockedPeriod.deleteMany({ where: { reason: "Feriado (teste)" } }); // não afeta as outras specs (banco compartilhado)
 
   for (const { page } of [A, B]) expectClean(page);
   await A.ctx.close();
@@ -448,7 +456,7 @@ test("administradora: falha de sincronização aparece no painel, com nova tenta
   const admin = await prisma.user.findUniqueOrThrow({ where: { email: ADMIN.email } });
   const client = await newClient("sync", info);
   const iso = slotIso(info.project.name === "desktop" ? 40 : 47, 10);
-  const appt = await insertAppointment(client.id, iso, "Manicure tradicional");
+  const appt = await insertAppointment(client.id, iso, "Polimento técnico");
   // Conta conectada (valores fictícios; nenhum dado real) e reserva marcada como falha.
   await prisma.googleCalendarAccount.upsert({
     where: { adminUserId: admin.id },

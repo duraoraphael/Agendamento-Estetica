@@ -58,7 +58,7 @@ describe("Logo: validação no servidor", () => {
 
 describe("Configurações: validação dos campos", () => {
   const valid = {
-    siteName: "Studio Bela", tagline: "", intro: "", phone: "", whatsapp: "(11) 90000-0000",
+    siteName: "Garage Bela", tagline: "", intro: "", phone: "", whatsapp: "(11) 90000-0000",
     address: "Rua A, 10", locationNotes: "Sala 2\nInterfone 12", instagramUrl: "@studiobela",
   };
 
@@ -81,7 +81,7 @@ describe("Configurações: validação dos campos", () => {
     expect(siteSettingsSchema.safeParse({ ...valid, siteName: " " }).success).toBe(false);
     expect(siteSettingsSchema.safeParse({ ...valid, phone: "123" }).success).toBe(false);
     expect(siteSettingsSchema.safeParse({ ...valid, intro: "x".repeat(301) }).success).toBe(false);
-    expect(siteSettingsSchema.safeParse({ ...valid, siteName: "Studio‮Bela" }).success).toBe(false);
+    expect(siteSettingsSchema.safeParse({ ...valid, siteName: "Garage‮Bela" }).success).toBe(false);
     expect(siteSettingsSchema.safeParse({ ...valid, address: "Rua\u0000A" }).success).toBe(false);
   });
 
@@ -102,10 +102,10 @@ describe("Configurações: persistência e padrões", () => {
 
   it("salva, relê e troca/remove a logo incrementando a versão", async () => {
     const input = siteSettingsSchema.parse({
-      siteName: "Studio Bela", tagline: "", intro: "", phone: "", whatsapp: "", address: "Rua A, 10", locationNotes: "", instagramUrl: "",
+      siteName: "Garage Bela", tagline: "", intro: "", phone: "", whatsapp: "", address: "Rua A, 10", locationNotes: "", instagramUrl: "",
     });
     let s = await saveSiteSettings(input, { kind: "keep" });
-    expect(s).toMatchObject({ siteName: "Studio Bela", tagline: DEFAULT_SITE.tagline, address: "Rua A, 10", logoUrl: null });
+    expect(s).toMatchObject({ siteName: "Garage Bela", tagline: DEFAULT_SITE.tagline, address: "Rua A, 10", logoUrl: null });
 
     s = await saveSiteSettings(input, { kind: "replace", logo: validateLogo(png(300, 300), "image/png") });
     expect(s.logoUrl).toBe("/api/logo?v=1");
@@ -122,7 +122,7 @@ describe("Configurações: persistência e padrões", () => {
 
   it("remover e enviar outra logo NUNCA reutiliza um número de versão (a URL é cacheada por 1 ano)", async () => {
     const input = siteSettingsSchema.parse({
-      siteName: "Studio Bela", tagline: "", intro: "", phone: "", whatsapp: "", address: "", locationNotes: "", instagramUrl: "",
+      siteName: "Garage Bela", tagline: "", intro: "", phone: "", whatsapp: "", address: "", locationNotes: "", instagramUrl: "",
     });
     let s = await saveSiteSettings(input, { kind: "replace", logo: validateLogo(png(300, 300), "image/png") });
     expect(s.logoUrl).toBe("/api/logo?v=1");
@@ -138,7 +138,7 @@ describe("Configurações: persistência e padrões", () => {
     const { GET } = await import("@/app/api/logo/route");
     expect((await GET(new Request("http://x/api/logo"))).status).toBe(404);
 
-    const input = siteSettingsSchema.parse({ siteName: "Studio", tagline: "", intro: "", phone: "", whatsapp: "", address: "", locationNotes: "", instagramUrl: "" });
+    const input = siteSettingsSchema.parse({ siteName: "Garage", tagline: "", intro: "", phone: "", whatsapp: "", address: "", locationNotes: "", instagramUrl: "" });
     await saveSiteSettings(input, { kind: "replace", logo: validateLogo(png(300, 200), "image/png") });
     const res = await GET(new Request("http://x/api/logo?v=1"));
     expect(res.status).toBe(200);
@@ -173,7 +173,7 @@ describe("Configurações: permissões da ação de salvar", () => {
 
   const form = (extra: Record<string, string | File> = {}) => {
     const fd = new FormData();
-    for (const [k, v] of Object.entries({ siteName: "Studio Nova", tagline: "", intro: "", phone: "", whatsapp: "", address: "Rua B, 20", locationNotes: "", instagramUrl: "", ...extra })) {
+    for (const [k, v] of Object.entries({ siteName: "Garage Nova", tagline: "", intro: "", phone: "", whatsapp: "", address: "Rua B, 20", locationNotes: "", instagramUrl: "", ...extra })) {
       fd.set(k, v);
     }
     return fd;
@@ -192,7 +192,7 @@ describe("Configurações: permissões da ação de salvar", () => {
     action = await loadActionAs({ id: admin.id, role: "ADMIN" });
     const ok = await action.saveSiteSettingsAction(null, form());
     expect(ok).toMatchObject({ ok: true });
-    expect((await loadSiteSettings()).siteName).toBe("Studio Nova");
+    expect((await loadSiteSettings()).siteName).toBe("Garage Nova");
   });
 
   it("upload: aceita imagem válida; recusa SVG disfarçado, tipo trocado e arquivo grande, sem alterar nada", async () => {
@@ -217,6 +217,6 @@ describe("Configurações: permissões da ação de salvar", () => {
     // Nada mudou: nem a logo, nem o nome (a gravação é tudo-ou-nada).
     const s = await loadSiteSettings();
     expect(s.logoUrl).toBe("/api/logo?v=1");
-    expect(s.siteName).toBe("Studio Nova");
+    expect(s.siteName).toBe("Garage Nova");
   });
 });

@@ -21,24 +21,24 @@ export function AdminNav({ adminName, newCount }: { adminName: string; newCount:
   const pathname = usePathname();
 
   return (
-    <header className="sticky top-0 z-20 border-b border-neutral-line bg-white">
+    <header className="sticky top-0 z-20 border-b border-line bg-surface">
       <div className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 pt-3 sm:px-6">
         <div className="flex items-center gap-3">
           <Brand href="/admin" />
-          <span className="hidden rounded-full bg-blush px-2.5 py-0.5 text-xs font-semibold text-wine sm:inline">Painel</span>
+          <span className="hidden rounded-full bg-surface-2 px-2.5 py-0.5 text-xs font-semibold text-brand sm:inline">Painel</span>
         </div>
         <div className="flex items-center gap-1 sm:gap-3">
           {newCount > 0 && (
             <Link
               href="/admin/agendamentos"
-              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-blush px-3 text-xs font-semibold text-wine focus:outline-none focus-visible:ring-2 focus-visible:ring-wine"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-surface-2 px-3 text-xs font-semibold text-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
             >
-              <span aria-hidden="true" className="h-2 w-2 rounded-full bg-wine" />
+              <span aria-hidden="true" className="h-2 w-2 rounded-full bg-brand" />
               {newCount} novo{newCount > 1 ? "s" : ""}
               <span className="sr-only"> agendamento{newCount > 1 ? "s" : ""}</span>
             </Link>
           )}
-          <span className="hidden text-sm text-plum-muted md:inline">{adminName}</span>
+          <span className="hidden text-sm text-fg-muted md:inline">{adminName}</span>
           <button type="button" onClick={() => signOut({ callbackUrl: "/login" })} className="btn-ghost">
             Sair
           </button>
@@ -53,8 +53,8 @@ export function AdminNav({ adminName, newCount }: { adminName: string; newCount:
                 <Link
                   href={link.href}
                   aria-current={active ? "page" : undefined}
-                  className={`inline-flex min-h-[44px] items-center whitespace-nowrap rounded-full px-4 font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-wine ${
-                    active ? "bg-wine text-white" : "text-plum-muted hover:bg-blush hover:text-plum"
+                  className={`inline-flex min-h-[44px] items-center whitespace-nowrap rounded-full px-4 font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+                    active ? "bg-brand text-ink" : "text-fg-muted hover:bg-surface-2 hover:text-fg"
                   }`}
                 >
                   {link.label}

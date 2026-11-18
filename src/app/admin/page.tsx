@@ -35,20 +35,51 @@ export default async function AdminHomePage() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="eyebrow">Hoje · {todayKey.split("-").reverse().join("/")}</p>
-          <h1 className="page-title mt-1">Agendamentos de hoje</h1>
-          <p className="mt-1 text-sm text-plum-muted">
-            {today.length} agendamento{today.length !== 1 ? "s" : ""} · previsto hoje {formatCents(expectedTodayCents)}
-          </p>
+          <h1 className="page-title mt-1">
+            Agendamentos de <span className="accent">hoje</span>
+          </h1>
+          <div className="accent-rule mt-3" aria-hidden="true" />
         </div>
         <Link href="/admin/agendamentos" className="btn-secondary">
           Ver todos os agendamentos
         </Link>
       </div>
 
+      {/* Resumo do dia */}
+      <dl className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        {[
+          { label: "Agendamentos hoje", value: String(today.length), tone: "text-fg" },
+          { label: "Valor previsto", value: formatCents(expectedTodayCents), tone: "text-brand" },
+          { label: "Novos agendamentos", value: String(newCount), tone: newCount > 0 ? "text-brand" : "text-fg" },
+          { label: "Falhas de sincronização", value: String(syncFailures), tone: syncFailures > 0 ? "text-status-danger" : "text-fg" },
+        ].map((s) => (
+          <div key={s.label} className="rounded-2xl border border-brand/40 bg-surface p-4">
+            <dt className="text-xs font-bold uppercase tracking-wide text-fg-muted">{s.label}</dt>
+            <dd className={`mt-1 font-display text-3xl font-extrabold ${s.tone}`}>{s.value}</dd>
+          </div>
+        ))}
+      </dl>
+
+      {/* Ações rápidas */}
+      <nav aria-label="Ações rápidas" className="flex flex-wrap gap-2">
+        <Link href="/admin/agendamentos?view=calendario" className="btn-ghost border border-line">
+          Abrir calendário
+        </Link>
+        <Link href="/admin/servicos" className="btn-ghost border border-line">
+          Serviços
+        </Link>
+        <Link href="/admin/horarios" className="btn-ghost border border-line">
+          Horários
+        </Link>
+        <Link href="/admin/faturamento" className="btn-ghost border border-line">
+          Faturamento
+        </Link>
+      </nav>
+
       {syncFailures > 0 && (
         <Link
           href="/admin/configuracoes/google"
-          className="flex items-center gap-3 rounded-2xl border border-status-danger/30 bg-status-danger-bg px-5 py-3 text-sm font-medium text-status-danger focus:outline-none focus-visible:ring-2 focus-visible:ring-wine"
+          className="flex items-center gap-3 rounded-2xl border border-status-danger/30 bg-status-danger-bg px-5 py-3 text-sm font-medium text-status-danger focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
         >
           <span aria-hidden="true">⚠</span>
           {syncFailures} reserva{syncFailures > 1 ? "s" : ""} não {syncFailures > 1 ? "foram sincronizadas" : "foi sincronizada"} com o Google Agenda. Toque para ver e tentar novamente.
@@ -58,9 +89,9 @@ export default async function AdminHomePage() {
       {newCount > 0 && (
         <Link
           href="/admin/agendamentos"
-          className="flex items-center gap-3 rounded-2xl border border-gold/50 bg-blush px-5 py-3 text-sm font-medium text-wine focus:outline-none focus-visible:ring-2 focus-visible:ring-wine"
+          className="flex items-center gap-3 rounded-2xl border border-brand/50 bg-surface-2 px-5 py-3 text-sm font-medium text-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand"
         >
-          <span aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-wine" />
+          <span aria-hidden="true" className="h-2.5 w-2.5 rounded-full bg-brand" />
           Você tem {newCount} novo{newCount > 1 ? "s" : ""} agendamento{newCount > 1 ? "s" : ""}. Toque para ver.
         </Link>
       )}
@@ -79,7 +110,7 @@ export default async function AdminHomePage() {
 
       <section aria-labelledby="proximos">
         <div className="mb-3 flex items-center justify-between gap-3">
-          <h2 id="proximos" className="font-display text-2xl font-semibold text-plum">
+          <h2 id="proximos" className="font-display text-2xl font-semibold text-fg">
             Próximos horários
           </h2>
           <Link href="/admin/agendamentos?view=calendario" className="link text-sm">
@@ -87,7 +118,7 @@ export default async function AdminHomePage() {
           </Link>
         </div>
         {next.length === 0 ? (
-          <p className="rounded-2xl border border-dashed border-gold/60 bg-white/60 px-6 py-6 text-center text-sm text-plum-muted">
+          <p className="rounded-2xl border border-dashed border-brand/60 bg-surface/60 px-6 py-6 text-center text-sm text-fg-muted">
             Nenhum horário confirmado para os próximos dias.
           </p>
         ) : (

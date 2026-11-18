@@ -26,7 +26,7 @@ describe("'Tentar todas novamente': lote com concorrência limitada (achado 9)",
       const startAt = new Date(nextDayAt(9, 0).getTime() + slotCounter++ * 30 * 60_000);
       const a = await prisma.appointment.create({
         data: {
-          clientId, serviceId, serviceName: "Manicure", priceCents: 4000, durationMinutes: 30,
+          clientId, serviceId, serviceName: "Lavagem", priceCents: 4000, durationMinutes: 30,
           startAt, endAt: new Date(startAt.getTime() + 30 * 60_000),
           googleSyncStatus: "ERRO", googleSyncError: "falhou antes", googleSyncAttempts: 6, googleSyncNextAt: null,
         },

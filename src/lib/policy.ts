@@ -32,7 +32,7 @@ const hoursLabel = (h: number) => (h === 1 ? "1 hora" : `${h} horas`);
 export function cancelPolicyText(minHours: number): string {
   return minHours === 0
     ? "Você pode cancelar pelo site a qualquer momento antes do atendimento."
-    : `Você pode cancelar pelo site até ${hoursLabel(minHours)} antes do horário. Depois disso, fale com o estúdio.`;
+    : `Você pode cancelar pelo site até ${hoursLabel(minHours)} antes do horário. Depois disso, fale com a Garage Zero Zero.`;
 }
 
 export function limitReachedMessage(max: number): string {

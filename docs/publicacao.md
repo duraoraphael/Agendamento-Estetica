@@ -12,7 +12,10 @@ O banco é **um só: PostgreSQL no Supabase (região São Paulo, `sa-east-1`)**.
 | Strings de conexão (Supabase > **Connect**) ⏳ | `DATABASE_URL` = *Transaction pooler* (6543, `?pgbouncer=true`); `DIRECT_URL` = *Session pooler* ou *Direct* (5432) |
 | `pg_dump` e `pg_restore` na máquina de backup ⏳ | versão igual ou maior que a do Postgres do Supabase; defina `PG_BIN_DIR` se não estiverem no PATH |
 | Segredos novos de produção ⏳ | `NEXTAUTH_SECRET`, `TOKEN_ENCRYPTION_KEY` (guarde uma cópia: sem ela os tokens do Google ficam ilegíveis), senha forte da administradora |
-| Proxy confiável? | se sim, `TRUSTED_PROXY_HOPS=1` (limite de login por IP + e-mail) |
+| Proxy confiável? | se sim, `TRUSTED_PROXY_HOPS=1` (limite de login por IP + e-mail, **e da recuperação de senha por IP**) |
+| E-mail transacional (recuperação de senha) ⏳ | `MAIL_PROVIDER=resend`, `RESEND_API_KEY` e `MAIL_FROM` (domínio verificado no Resend). **Sem isto a recuperação de senha não envia nada** (e nunca mostra o link). `NEXTAUTH_URL` precisa ser o endereço público: o link do e-mail é montado a partir dele |
+| Fotos dos serviços (Supabase Storage) ⏳ | defina `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` **só no servidor** (nunca `NEXT_PUBLIC_*`), rode `npm run db:deploy` (migração `20261119000000_service_images`) e `npm run storage:setup` (cria o bucket público `service-images`). Sem isso o painel avisa e o site usa os placeholders. Veja [fotos-servicos.md](fotos-servicos.md) |
+| Logo e fotos ⏳ | a logo oficial já está em `public/brand/logo.svg`. As fotos são placeholders: troque-as seguindo [imagens.md](imagens.md) (`npm run images:optimize`) |
 
 O app **não** usa as chaves `anon` nem `service_role` do Supabase: só a conexão Postgres.
 
@@ -45,6 +48,24 @@ npm run test:e2e    # testes de tela (Edge), também com PostgreSQL embutido pr�
 7. **Ligar o backup diário** (seção 4) e fazer o primeiro backup manual.
 8. **Google Agenda** (se for usar): criar credenciais OAuth, cadastrar `GOOGLE_REDIRECT_URI` = `https://SEU-DOMINIO/api/google/callback`, conectar pelo painel e rodar o roteiro da seção 5.
 
+### Banco que já era o sistema de manicure (atualização) ⏳
+
+A migração `20261118000000_garage_zero_zero` é **só aditiva** (nada é apagado ou reescrito): cria `Vehicle` e `PasswordResetToken`
+(com RLS ligado), acrescenta colunas opcionais em `Appointment` (veículo, snapshots, observações) e `User.sessionVersion`. Ordem:
+
+1. **Backup** (seção 4) e, de preferência, ensaio num banco restaurado.
+2. `npm run db:deploy` — **antes** de subir o código novo (o código novo lê as colunas novas).
+3. `npm run db:migrate-services -- --dry-run`, conferir a lista, e depois `npm run db:migrate-services`. Desativa os 5 serviços de
+   manicure pelo **nome exato** e cadastra os 7 automotivos que faltam; **não altera reservas** nem serviços personalizados.
+   Idempotente. Se quiser reativar algum serviço antigo, é só ativá-lo em `/admin/servicos`.
+4. Subir o código novo. Reservas antigas continuam abrindo ("Veículo não informado — agendamento anterior à atualização"), e as
+   sessões já abertas continuam valendo (tokens antigos contam como `sessionVersion` 0).
+5. Em `/admin/configuracoes`, conferir nome, slogan, contatos e endereço (os textos que ainda eram os padrões de manicure foram
+   restaurados ao padrão novo; o que você tinha personalizado ficou).
+
+**Retorno:** como a migração é aditiva, voltar o app para a versão anterior continua funcionando com o banco novo (as colunas novas
+são ignoradas). Os serviços desativados voltam a ser oferecidos reativando-os no painel.
+
 ### Mudanças de schema depois
 
 `npm run db:migrate` (desenvolvimento, contra o projeto Supabase **de desenvolvimento**) gera a migração; revise o SQL, **acrescente `ENABLE ROW LEVEL SECURITY` para toda tabela nova** e rode `npm test` (ele confere que as migrações produzem exatamente o schema). Em produção, só `npm run db:deploy`. Migrações são só para frente.
@@ -75,4 +96,14 @@ npm run test:e2e    # testes de tela (Edge), também com PostgreSQL embutido pr�
 1. Google Cloud Console → criar projeto → ativar **Google Calendar API** → tela de consentimento (externo, modo teste, adicione a sua conta) → credenciais **ID do cliente OAuth** (aplicativo Web) com URI de redirecionamento `http://localhost:3000/api/google/callback`.
 2. No `.env` **de teste**: `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI=http://localhost:3000/api/google/callback`.
 3. Use uma **agenda dedicada** de teste. No painel → Google Agenda → Conectar.
-4. Verificar: reservar (evento aparece com nome da cliente) · cancelar pela cliente e pela administradora (evento some) · reativar (evento volta, sem duplicar) · criar um compromisso pessoal no Google no mesmo horário (o horário deixa de ser oferecido) · desligar a internet/revogar o acesso e tentar reservar (mensagem "tente novamente", nenhuma reserva criada).
+4. Verificar: reservar (evento aparece com o nome da cliente, **o modelo e a placa do veículo** e as observações) · **reagendar pela cliente** (o MESMO evento muda de horário, sem duplicar, inclusive ao deslocar só 30 minutos) · cancelar pela cliente e pela administradora (evento some) · reativar (evento volta, sem duplicar) · criar um compromisso pessoal no Google no mesmo horário (o horário deixa de ser oferecido) · desligar a internet/revogar o acesso e tentar reservar (mensagem "tente novamente", nenhuma reserva criada).
+
+## 6. Roteiro de verificação da recuperação de senha ⏳
+
+Depende do provedor de e-mail configurado (`MAIL_PROVIDER=resend`). Use uma conta de teste:
+
+1. `/recuperar-senha` com o e-mail da conta e com um e-mail que **não** existe: a mensagem na tela deve ser **idêntica**.
+2. O e-mail chega, com um link `https://SEU-DOMINIO/redefinir-senha?token=...` válido por 30 minutos.
+3. Pedir outro link: o primeiro deixa de funcionar. Usar o link novo: define a senha e leva ao login; usá-lo **de novo** é recusado.
+4. Com a conta aberta em outro navegador, redefinir a senha: a sessão antiga deve ser encerrada na próxima ação.
+5. Conferir que **nenhum log** do servidor contém o link ou o token (a auditoria em `/admin/logs` mostra só o evento, sem e-mail).

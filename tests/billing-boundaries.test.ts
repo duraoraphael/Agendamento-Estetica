@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { resetDb, openAllWeek, createClient, createService, nextDayAt } from "./helpers";
 import { prisma } from "@/lib/db";
 import { getBillingSummary } from "@/lib/billing";
-import { createBooking, updateAppointmentStatus } from "@/lib/booking";
+import { updateAppointmentStatus } from "@/lib/booking";
+import { createBooking } from "./helpers";
 
 // America/Sao_Paulo = UTC-3 (sem horário de verão). Meia-noite local = 03:00Z.
 let clientId: string;
@@ -15,7 +16,7 @@ async function add(utcIso: string, priceCents: number, status: string, name = "S
   });
 }
 
-describe("Faturamento nas viradas de dia, semana e mês (fuso do estúdio)", () => {
+describe("Faturamento nas viradas de dia, semana e mês (fuso da empresa)", () => {
   beforeEach(async () => {
     await resetDb();
     await openAllWeek();

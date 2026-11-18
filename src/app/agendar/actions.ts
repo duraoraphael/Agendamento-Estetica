@@ -12,10 +12,11 @@ import { RATE_LIMITS } from "@/lib/constants";
 import { hitLimit, limitKey } from "@/lib/rate-limit";
 import { securityLog } from "@/lib/security-log";
 import { recordAuditCoalesced } from "@/lib/audit-log";
-import { horarioUrl } from "@/lib/booking-urls";
+import { confirmadoUrl, horarioUrl } from "@/lib/booking-urls";
+import { clearNotesDraft } from "@/lib/booking-draft";
 
 const CALENDAR_UNAVAILABLE_MESSAGE =
-  "Não foi possível verificar a agenda do estúdio agora. Tente novamente em alguns instantes.";
+  "Não foi possível verificar a agenda da Garage Zero Zero agora. Tente novamente em alguns instantes.";
 
 type SlotsResult = { slots: string[]; closed: boolean } | { error: string };
 
@@ -133,9 +134,11 @@ export async function confirmBookingAction(_prev: ConfirmState, formData: FormDa
   const parsed = createBookingSchema.safeParse({
     serviceId: formData.get("serviceId")?.toString(),
     startAtIso: formData.get("startAtIso")?.toString(),
+    vehicleId: formData.get("vehicleId")?.toString(),
+    notes: formData.get("notes")?.toString() ?? "",
   });
   if (!parsed.success) {
-    return { error: parsed.error.issues[0]?.message ?? "Dados do agendamento incompletos. Volte e escolha o serviço e o horário novamente." };
+    return { error: parsed.error.issues[0]?.message ?? "Dados do agendamento incompletos. Volte e escolha o serviço, o horário e o veículo novamente." };
   }
 
   // Limite de pedidos por cliente (compartilhado com o cancelamento): reservar e cancelar em laço não pode crescer sem fim.
@@ -148,7 +151,13 @@ export async function confirmBookingAction(_prev: ConfirmState, formData: FormDa
 
   let createdId: string;
   try {
-    const created = await createBooking({ clientId: user.id, serviceId: parsed.data.serviceId, startAt: new Date(parsed.data.startAtIso) });
+    const created = await createBooking({
+      clientId: user.id,
+      serviceId: parsed.data.serviceId,
+      startAt: new Date(parsed.data.startAtIso),
+      vehicleId: parsed.data.vehicleId,
+      notes: parsed.data.notes,
+    });
     createdId = created.id;
   } catch (err) {
     // Outra cliente ocupou o horário (ou ele deixou de valer): volta à escolha, com a lista atualizada e o aviso.
@@ -165,6 +174,8 @@ export async function confirmBookingAction(_prev: ConfirmState, formData: FormDa
     return { error: "Não foi possível concluir o agendamento. Tente novamente em alguns instantes." };
   }
 
-  // O id da reserva recém-criada vai na URL para a tela mostrar "Salvar no Google Agenda" (a posse é revalidada lá).
-  redirect(`/meus-agendamentos?confirmado=${encodeURIComponent(createdId)}`);
+  // O rascunho das observações já cumpriu o papel: sai do navegador.
+  await clearNotesDraft();
+  // Página dedicada de confirmação: o id da reserva vai na URL, mas a posse é revalidada no servidor lá (só a dona a vê).
+  redirect(confirmadoUrl(createdId));
 }

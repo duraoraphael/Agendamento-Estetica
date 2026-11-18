@@ -4,77 +4,133 @@ import { requireClient } from "@/lib/session";
 import { getAppointmentForClient } from "@/lib/appointments";
 import { formatCents, formatDateBR, formatTimeBR } from "@/lib/format";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Page } from "@/components/ui";
+import { Notice, Page, PageHeader } from "@/components/ui";
 import { CancelBookingButton } from "@/components/CancelBookingButton";
 import { canClientCancel, cancelPolicyText, getBookingPolicy } from "@/lib/policy";
 import { AddToGoogleCalendar } from "@/components/AddToGoogleCalendar";
-import { StudioInfo } from "@/components/StudioInfo";
+import { LocationInfo } from "@/components/LocationInfo";
 import { getSiteSettings } from "@/lib/site-settings-cache";
+import { whatsappLink } from "@/lib/site-settings";
+import { formatPlate } from "@/lib/plate";
+import { idSchema } from "@/lib/validation";
+import { CalendarIcon, CarIcon, ClockIcon, WrenchIcon } from "@/components/icons";
 
-function CancelOrPolicy({ appointment }: { appointment: { id: string; startAt: Date } }) {
-  const { clientCancelMinHours } = getBookingPolicy();
-  const policyText = cancelPolicyText(clientCancelMinHours);
-  if (canClientCancel(appointment.startAt, new Date(), clientCancelMinHours)) {
-    return <CancelBookingButton appointmentId={appointment.id} policyText={policyText} />;
-  }
-  return (
-    <p className="mt-6 rounded-2xl border border-gold/40 bg-blush-light px-5 py-4 text-sm text-plum">
-      O prazo para cancelar pelo site já passou. Para cancelar este horário, fale com o estúdio.
-    </p>
-  );
-}
+export const metadata = { title: "Detalhes do agendamento" };
 
-export default async function DetalheAgendamentoPage({ params }: { params: Promise<{ id: string }> }) {
-  // Next 15: params é assíncrono (em Next 14 o await é inofensivo).
+const LEGACY_VEHICLE = "Veículo não informado — agendamento anterior à atualização";
+
+export default async function DetalheAgendamentoPage({
+  params,
+  searchParams: searchParamsPromise,
+}: {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ reagendado?: string; reagendar?: string }>;
+}) {
   const { id } = await params;
+  const searchParams = await searchParamsPromise;
   const user = await requireClient();
+  if (!idSchema.safeParse(id).success) notFound();
 
   // Nunca confiar no id da URL: getAppointmentForClient só retorna a reserva
   // se ela pertencer à cliente autenticada (veja lib/appointments.ts).
   const [appointment, site] = await Promise.all([getAppointmentForClient(id, user.id), getSiteSettings()]);
+  if (!appointment) notFound();
 
-  if (!appointment) {
-    notFound();
-  }
+  const { clientCancelMinHours } = getBookingPolicy();
+  const policyText = cancelPolicyText(clientCancelMinHours);
+  const isFutureConfirmed = appointment.status === "CONFIRMADA" && appointment.startAt > new Date();
+  const withinPolicy = isFutureConfirmed && canClientCancel(appointment.startAt, new Date(), clientCancelMinHours);
+  const vehicle = [appointment.vehicleBrandSnapshot, appointment.vehicleModelSnapshot].filter(Boolean).join(" ");
+  const wa = whatsappLink(site.whatsapp);
+
+  const rows = [
+    { icon: <WrenchIcon className="h-5 w-5" />, label: "Serviço", value: appointment.serviceName },
+    { icon: <CalendarIcon className="h-5 w-5" />, label: "Data", value: formatDateBR(appointment.startAt) },
+    { icon: <ClockIcon className="h-5 w-5" />, label: "Horário", value: formatTimeBR(appointment.startAt) },
+    { icon: <ClockIcon className="h-5 w-5" />, label: "Duração", value: `${appointment.durationMinutes} min` },
+    { icon: <CarIcon className="h-5 w-5" />, label: "Veículo", value: vehicle || LEGACY_VEHICLE },
+    ...(appointment.vehiclePlateSnapshot ? [{ icon: <CarIcon className="h-5 w-5" />, label: "Placa", value: formatPlate(appointment.vehiclePlateSnapshot) }] : []),
+  ];
 
   return (
-    <Page>
+    <Page width="lg">
       <Link href="/meus-agendamentos" className="link text-sm">
         ← Voltar para meus agendamentos
       </Link>
+      <div className="mt-6">
+        <PageHeader title="Detalhes do" accent="agendamento" />
+      </div>
 
-      <section aria-label="Detalhes do agendamento" className="mt-5 overflow-hidden rounded-2xl border border-gold/50 bg-white shadow-soft">
-        <div className="flex flex-wrap items-center justify-between gap-3 bg-blush px-6 py-5">
-          <h1 className="font-display text-2xl font-semibold text-plum">{appointment.serviceName}</h1>
+      {searchParams.reagendado && (
+        <div className="mt-5">
+          <Notice tone="success">Agendamento reagendado! O novo horário já está confirmado.</Notice>
+        </div>
+      )}
+      {searchParams.reagendar === "indisponivel" && (
+        <div className="mt-5">
+          <Notice tone="warning">Este agendamento não pode mais ser reagendado pelo site. {policyText}</Notice>
+        </div>
+      )}
+
+      <section aria-label="Detalhes do agendamento" className="mt-6 overflow-hidden rounded-2xl border border-brand/50 bg-surface shadow-soft">
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-surface-2 px-5 py-4">
+          <h2 className="font-display text-2xl font-bold uppercase tracking-wide text-fg">{appointment.serviceName}</h2>
           <StatusBadge status={appointment.status} />
         </div>
-        <dl className="divide-y divide-blush-deep/50 px-6">
-          <div className="flex justify-between gap-4 py-4">
-            <dt className="text-plum-muted">Data</dt>
-            <dd className="font-semibold text-plum">{formatDateBR(appointment.startAt)}</dd>
-          </div>
-          <div className="flex justify-between gap-4 py-4">
-            <dt className="text-plum-muted">Horário</dt>
-            <dd className="font-semibold text-plum">{formatTimeBR(appointment.startAt)}</dd>
-          </div>
-          <div className="flex justify-between gap-4 py-4">
-            <dt className="text-plum-muted">Duração</dt>
-            <dd className="font-medium text-plum">{appointment.durationMinutes} min</dd>
-          </div>
-          <div className="flex items-baseline justify-between gap-4 py-5">
-            <dt className="font-semibold text-plum">Valor</dt>
-            <dd className="font-display text-2xl font-semibold text-wine">{formatCents(appointment.priceCents)}</dd>
+        <dl className="divide-y divide-line px-5">
+          {rows.map((r) => (
+            <div key={r.label} className="flex items-center justify-between gap-4 py-3.5">
+              <dt className="flex items-center gap-2 text-fg-muted">
+                <span className="text-brand">{r.icon}</span>
+                {r.label}
+              </dt>
+              <dd className="text-right font-semibold text-fg">{r.value}</dd>
+            </div>
+          ))}
+          {appointment.notes && (
+            <div className="py-3.5">
+              <dt className="text-fg-muted">Observações</dt>
+              {/* Texto da cliente: sempre como texto puro (React escapa), preservando quebras de linha. */}
+              <dd className="mt-1 whitespace-pre-line break-words text-fg">{appointment.notes}</dd>
+            </div>
+          )}
+          <div className="flex items-baseline justify-between gap-4 py-4">
+            <dt className="font-semibold text-fg">Valor</dt>
+            <dd className="font-display text-2xl font-extrabold text-brand">{formatCents(appointment.priceCents)}</dd>
           </div>
         </dl>
       </section>
 
-      <StudioInfo site={site} className="mt-5" />
+      <LocationInfo site={site} className="mt-5" />
+
+      {wa && (
+        <p className="mt-3">
+          <a href={wa} target="_blank" rel="noopener noreferrer" className="link">
+            Falar pelo WhatsApp<span className="sr-only"> (abre em uma nova aba)</span>
+          </a>
+        </p>
+      )}
 
       <AddToGoogleCalendar appointment={appointment} site={site} />
 
-      {appointment.status === "CONFIRMADA" && appointment.startAt > new Date() && (
-        <CancelOrPolicy appointment={appointment} />
+      {isFutureConfirmed && (
+        <div className="mt-6 flex flex-col gap-3 sm:flex-row">
+          {withinPolicy && (
+            <Link href={`/meus-agendamentos/${appointment.id}/reagendar`} className="btn-primary w-full sm:w-auto">
+              Reagendar
+            </Link>
+          )}
+        </div>
       )}
+
+      {isFutureConfirmed &&
+        (withinPolicy ? (
+          <CancelBookingButton appointmentId={appointment.id} policyText={policyText} />
+        ) : (
+          <p className="mt-6 rounded-2xl border border-brand/40 bg-surface px-5 py-4 text-sm text-fg">
+            O prazo para reagendar ou cancelar pelo site já passou. Para mudar este horário, fale com a Garage Zero Zero.
+          </p>
+        ))}
     </Page>
   );
 }

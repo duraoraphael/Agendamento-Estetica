@@ -1,25 +1,12 @@
 import { z } from "zod";
+import { isValidPlate, normalizePlate } from "./plate";
+import { LIMITS } from "./limits";
 
 // Celular brasileiro com DDD: (XX) XXXXX-XXXX ou (XX) XXXX-XXXX, com ou sem máscara.
 const phoneRegex = /^\(?\d{2}\)?[\s-]?\d{4,5}-?\d{4}$/;
 
-export const LIMITS = {
-  nameMax: 100,
-  emailMax: 254,
-  phoneMax: 20,
-  passwordMin: 8,
-  // O bcrypt só usa os primeiros 72 BYTES da senha. Acima disso o resto seria
-  // ignorado em silêncio, então rejeitamos em vez de truncar.
-  passwordMaxBytes: 72,
-  // No login aceitamos mais (contas antigas podem ter senhas longas); o bcrypt
-  // continua comparando apenas os 72 primeiros bytes, como na criação da conta.
-  loginPasswordMaxBytes: 1024,
-  serviceNameMax: 80,
-  priceCentsMax: 500_000, // R$ 5.000,00
-  durationMax: 480, // 8 horas
-  reasonMax: 200,
-  idMax: 64,
-} as const;
+// Os limites vivem em ./limits (sem dependências, para as telas usarem sem levar o Zod ao navegador).
+export { LIMITS };
 
 export function utf8ByteLength(value: string): number {
   return new TextEncoder().encode(value).length;
@@ -31,7 +18,7 @@ const COMMON_PASSWORDS = new Set([
   "12345678", "123456789", "1234567890", "11111111", "00000000", "87654321",
   "password", "password1", "password123", "senha123", "senha1234", "senha@123",
   "qwertyui", "qwerty123", "qwertyuiop", "abc12345", "abcd1234", "iloveyou",
-  "admin123", "admin1234", "mudar123", "trocar123", "brasil123", "manicure",
+  "admin123", "admin1234", "mudar123", "trocar123", "brasil123", "garagezerozero", "garage123",
   "12341234", "123123123", "1q2w3e4r", "q1w2e3r4",
 ]);
 
@@ -144,14 +131,136 @@ export const blockedPeriodSchema = z
 
 export const idSchema = z.string().min(1).max(LIMITS.idMax);
 
+/**
+ * Texto livre sem caracteres de controle (exceto quebra de linha quando permitida), sem separadores de linha Unicode e
+ * sem marcas de direção (bidi, usadas em "Trojan Source"). Nada é interpretado como HTML: a exibição escapa tudo (React).
+ */
+export function hasNoControlChars(value: string, allowNewlines = false): boolean {
+  for (const ch of value) {
+    const c = ch.codePointAt(0) ?? 0;
+    if (allowNewlines && (c === 10 || c === 13)) continue;
+    if (c < 32 || c === 127 || c === 0x2028 || c === 0x2029 || (c >= 0x202a && c <= 0x202e) || (c >= 0x2066 && c <= 0x2069)) return false;
+  }
+  return true;
+}
+
+const optionalShortText = (max: number, label: string) =>
+  z
+    .string()
+    .trim()
+    .max(max, `${label}: no máximo ${max} caracteres.`)
+    .refine((v) => hasNoControlChars(v), `${label}: contém caracteres inválidos.`)
+    .transform((v) => (v === "" ? null : v))
+    .nullable()
+    .optional()
+    .transform((v) => v ?? null);
+
+/** Placa: aceita "abc-1d23", "ABC 1234" etc.; devolve a forma normalizada (maiúsculas, sem separador). */
+export const plateSchema = z
+  .string()
+  .trim()
+  .max(12, "Placa inválida.")
+  .transform(normalizePlate)
+  .refine(isValidPlate, "Informe uma placa válida (ex.: ABC1D23 ou ABC-1234).");
+
+export const vehicleSchema = z.object({
+  brand: z
+    .string()
+    .trim()
+    .min(1, "Informe a marca.")
+    .max(LIMITS.vehicleBrandMax, `Marca: no máximo ${LIMITS.vehicleBrandMax} caracteres.`)
+    .refine((v) => hasNoControlChars(v), "Marca: contém caracteres inválidos."),
+  model: z
+    .string()
+    .trim()
+    .min(1, "Informe o modelo.")
+    .max(LIMITS.vehicleModelMax, `Modelo: no máximo ${LIMITS.vehicleModelMax} caracteres.`)
+    .refine((v) => hasNoControlChars(v), "Modelo: contém caracteres inválidos."),
+  plate: plateSchema,
+  year: z
+    .union([z.literal(""), z.null(), z.coerce.number().int("Ano inválido.").min(1900, "Ano inválido.").max(new Date().getFullYear() + 1, "Ano inválido.")])
+    .optional()
+    .transform((v) => (v === "" || v === null || v === undefined ? null : v)),
+  color: optionalShortText(LIMITS.vehicleColorMax, "Cor"),
+  nickname: optionalShortText(LIMITS.vehicleNicknameMax, "Apelido"),
+});
+
+export type VehicleInput = z.infer<typeof vehicleSchema>;
+
+/** Observações da cliente: opcionais, até 500 caracteres, texto puro. Vazio vira `null`. */
+export const notesSchema = z
+  .string()
+  .max(LIMITS.notesMax * 2, `As observações podem ter no máximo ${LIMITS.notesMax} caracteres.`)
+  .transform((v) => v.replace(/\r\n/g, "\n").trim())
+  .refine((v) => v.length <= LIMITS.notesMax, `As observações podem ter no máximo ${LIMITS.notesMax} caracteres.`)
+  .refine((v) => hasNoControlChars(v, true), "As observações contêm caracteres inválidos.")
+  .transform((v) => (v === "" ? null : v))
+  .nullable()
+  .optional()
+  .transform((v) => v ?? null);
+
+const startAtIsoSchema = z
+  .string()
+  .min(1, "Selecione um horário.")
+  .max(40)
+  .refine((v) => !Number.isNaN(new Date(v).getTime()), "Horário inválido. Escolha um horário na lista.");
+
 export const createBookingSchema = z.object({
   serviceId: idSchema,
-  startAtIso: z
-    .string()
-    .min(1, "Selecione um horário.")
-    .max(40)
-    .refine((v) => !Number.isNaN(new Date(v).getTime()), "Horário inválido. Escolha um horário na lista."),
+  startAtIso: startAtIsoSchema,
+  // Veículo e observações: o veículo é OBRIGATÓRIO para novas reservas (o servidor confere que é da própria cliente).
+  vehicleId: z.string().min(1, "Escolha o veículo do agendamento.").max(LIMITS.idMax, "Veículo inválido."),
+  notes: notesSchema,
 });
+
+export const rescheduleSchema = z.object({
+  appointmentId: idSchema,
+  startAtIso: startAtIsoSchema,
+});
+
+/** Edição de perfil: só nome e celular. E-mail e senha seguem fluxos próprios (reautenticação/verificação). */
+export const profileSchema = z.object({
+  name: signupSchemaName(),
+  phone: z
+    .string()
+    .trim()
+    .max(LIMITS.phoneMax, "Celular inválido.")
+    .regex(phoneRegex, "Informe um celular válido com DDD, ex: (11) 90000-0000."),
+});
+
+function signupSchemaName() {
+  return z
+    .string()
+    .trim()
+    .min(3, "Informe seu nome completo.")
+    .max(LIMITS.nameMax, `O nome pode ter no máximo ${LIMITS.nameMax} caracteres.`)
+    .refine((v) => v.trim().split(/\s+/).length >= 2, "Informe nome e sobrenome.")
+    .refine((v) => hasNoControlChars(v), "O nome contém caracteres inválidos.");
+}
+
+/** Pedido de recuperação de senha: só o e-mail. A resposta ao usuário é sempre a mesma (veja password-reset.ts). */
+export const passwordResetRequestSchema = z.object({
+  email: z.string().trim().toLowerCase().max(LIMITS.emailMax).email("Informe um e-mail válido."),
+});
+
+export const passwordResetSchema = z
+  .object({
+    token: z.string().trim().min(20, "Link inválido ou expirado.").max(LIMITS.resetTokenMax, "Link inválido ou expirado."),
+    password: passwordSchema,
+    confirmPassword: z.string().max(LIMITS.passwordMaxBytes * 4),
+  })
+  .refine((d) => d.password === d.confirmPassword, { message: "As senhas não coincidem.", path: ["confirmPassword"] });
+
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z
+      .string()
+      .min(1, "Informe sua senha atual.")
+      .refine((v) => utf8ByteLength(v) <= LIMITS.loginPasswordMaxBytes, "Senha inválida."),
+    password: passwordSchema,
+    confirmPassword: z.string().max(LIMITS.passwordMaxBytes * 4),
+  })
+  .refine((d) => d.password === d.confirmPassword, { message: "As senhas não coincidem.", path: ["confirmPassword"] });
 
 export const statusUpdateSchema = z.object({
   status: z.enum(["CONFIRMADA", "CONCLUIDA", "CANCELADA", "FALTA"]),

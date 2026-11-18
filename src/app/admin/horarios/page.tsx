@@ -15,30 +15,30 @@ export default async function HorariosPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="font-display text-2xl font-semibold text-plum sm:text-3xl">Expediente</h1>
-        <p className="text-sm text-plum-muted">Defina os dias e horários de atendimento e o intervalo de almoço.</p>
+        <h1 className="page-title">Expediente</h1>
+        <p className="text-sm text-fg-muted">Defina os dias e horários de atendimento e o intervalo de almoço. Serviços mais longos que o menor turno do dia (por exemplo, 4 h ou 5 h com almoço no meio) atravessam o almoço; para impedir um horário específico, use um bloqueio.</p>
       </div>
 
       <BusinessHoursForm hoursByDay={hoursByDay} />
 
       <div>
-        <h1 className="font-display text-2xl font-semibold text-plum sm:text-3xl">Bloqueios pontuais</h1>
-        <p className="text-sm text-plum-muted">Feriados, folgas e férias — o horário fica indisponível para reservas.</p>
+        <h2 className="font-display text-3xl font-extrabold uppercase italic text-fg">Bloqueios <span className="accent">pontuais</span></h2>
+        <p className="text-sm text-fg-muted">Feriados, folgas e férias — o horário fica indisponível para reservas.</p>
       </div>
 
       <BlockedPeriodForm />
 
       <div className="space-y-2">
         {blocks.length === 0 ? (
-          <p className="text-center text-sm text-plum-muted">Nenhum bloqueio futuro cadastrado.</p>
+          <p className="text-center text-sm text-fg-muted">Nenhum bloqueio futuro cadastrado.</p>
         ) : (
           blocks.map((block) => (
             <div key={block.id} className="card flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-plum">
+                <p className="text-sm font-medium text-fg">
                   {formatDateTimeBR(block.startAt)} até {formatDateTimeBR(block.endAt)}
                 </p>
-                {block.reason && <p className="text-sm text-plum-muted">{block.reason}</p>}
+                {block.reason && <p className="text-sm text-fg-muted">{block.reason}</p>}
               </div>
               <form action={deleteBlockedPeriodAction.bind(null, block.id)}>
                 <button type="submit" className="btn-ghost text-status-danger">

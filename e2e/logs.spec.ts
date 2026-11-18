@@ -22,8 +22,8 @@ test.afterAll(async () => {
 
 async function login(page: Page, email: string, password: string) {
   await page.goto("/login");
-  await page.getByLabel("E-mail").fill(email);
-  await page.getByLabel("Senha").fill(password);
+  await page.getByLabel("E-mail", { exact: true }).fill(email);
+  await page.getByLabel("Senha", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Entrar" }).click();
   await page.waitForURL((u) => !u.pathname.startsWith("/login"));
 }
@@ -56,8 +56,8 @@ test("quem não é administradora não acessa os logs (visitante e cliente)", as
 test("administradora vê as abas e os eventos reais de login recusado, login, logout e agendamento", async ({ page }, info) => {
   // 1) Tentativa recusada (senha errada) da própria conta administrativa.
   await page.goto("/login");
-  await page.getByLabel("E-mail").fill(ADMIN.email);
-  await page.getByLabel("Senha").fill("senha-errada-123");
+  await page.getByLabel("E-mail", { exact: true }).fill(ADMIN.email);
+  await page.getByLabel("Senha", { exact: true }).fill("senha-errada-123");
   await page.getByRole("button", { name: "Entrar" }).click();
   await expect(page.getByText("E-mail ou senha incorretos")).toBeVisible();
 

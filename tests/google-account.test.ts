@@ -14,7 +14,7 @@ import {
   persistRefreshedTokens,
   syncAppointmentToGoogle,
 } from "@/lib/google-calendar";
-import { createBooking } from "@/lib/booking";
+import { createBooking } from "./helpers";
 import { makeFakeCalendar } from "./fake-calendar";
 
 // Google simulado: nenhuma chamada real. O cliente OAuth é um EventEmitter, como o de verdade, e o `freebusy`
@@ -81,9 +81,9 @@ describe("Google Agenda: conexão única e seleção determinística (achado 5)"
   });
 
   it("uma conta: é a usada, com o calendário dela", async () => {
-    await addAccount(undefined, { calendarId: "agenda-do-estudio@group.calendar.google.com" });
+    await addAccount(undefined, { calendarId: "agenda-da-garage@group.calendar.google.com" });
     await getFreeBusyIntervals(...range());
-    expect(fake.api.freebusy.query.mock.calls[0][0].requestBody.items).toEqual([{ id: "agenda-do-estudio@group.calendar.google.com" }]);
+    expect(fake.api.freebusy.query.mock.calls[0][0].requestBody.items).toEqual([{ id: "agenda-da-garage@group.calendar.google.com" }]);
   });
 
   it("nenhuma conta: não está conectado e a agenda externa é vazia, sem chamar o Google", async () => {
@@ -118,7 +118,7 @@ describe("Google Agenda: conexão única e seleção determinística (achado 5)"
     const service = await createService();
     const a = await prisma.appointment.create({
       data: {
-        clientId: client.id, serviceId: service.id, serviceName: "Manicure", priceCents: 4000, durationMinutes: 30,
+        clientId: client.id, serviceId: service.id, serviceName: "Lavagem", priceCents: 4000, durationMinutes: 30,
         startAt: nextDayAt(10, 0), endAt: nextDayAt(10, 30), googleSyncStatus: "PENDENTE",
       },
     });

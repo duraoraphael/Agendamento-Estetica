@@ -19,7 +19,7 @@ const text = (fd: FormData, key: string) => {
 };
 
 /**
- * Salva identidade e contatos do estúdio (e, se enviada, a logo). Só a administradora:
+ * Salva identidade e contatos da empresa (e, se enviada, a logo). Só a administradora:
  * `requireAdmin` confere a sessão E o papel no banco a cada chamada — uma Server Action é um endpoint
  * público, então a tela escondida não protege nada. Tudo é validado de novo aqui; a logo é inspecionada
  * pelos bytes (formato, tamanho, dimensões), nunca pelo que o navegador declara.
@@ -81,7 +81,7 @@ export async function saveSiteSettingsAction(_prev: SettingsFormState, formData:
     actorId: admin.id,
     targetType: "SiteSettings",
     targetId: "1",
-    detail: logo.kind === "replace" ? "Dados do estúdio e logo trocada" : logo.kind === "remove" ? "Dados do estúdio e logo removida" : "Dados do estúdio",
+    detail: logo.kind === "replace" ? "Dados da empresa e logo trocada" : logo.kind === "remove" ? "Dados da empresa e logo removida" : "Dados da empresa",
   });
   // Invalida o cache global das configurações e as telas que mostram a identidade.
   invalidateSiteSettings();

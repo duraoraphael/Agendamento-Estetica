@@ -4,12 +4,13 @@ import { hasBusyConflict, isSlotAvailable } from "./availability";
 import { fetchExternalBusy, syncAppointmentToGoogle } from "./google-calendar";
 import { markPendingIfConnected, retryNow } from "./google-sync-queue";
 import { BLOCKING_STATUSES, STATUS_LABELS } from "./constants";
-import { statusUpdateSchema } from "./validation";
+import { notesSchema, statusUpdateSchema } from "./validation";
 import { canClientCancel, getBookingPolicy, limitReachedMessage } from "./policy";
 import { recordAuditTx } from "./audit-log";
 import { formatDateTimeBR } from "./format";
 import type { Prisma } from "@prisma/client";
 import type { AppointmentStatus } from "./types";
+import type { Interval } from "./availability";
 
 export { CalendarUnavailableError } from "./google-calendar";
 
@@ -19,6 +20,7 @@ export class BookingValidationError extends Error {}
 export class BookingLimitError extends BookingValidationError {}
 
 const SLOT_TAKEN_MESSAGE = "Esse horário não está mais disponível. Escolha outro horário.";
+const VEHICLE_REQUIRED_MESSAGE = "Escolha ou cadastre o veículo do agendamento.";
 
 async function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -112,11 +114,27 @@ function toSyncPayload(appointment: {
  * Lança BookingValidationError / BookingConflictError / CalendarUnavailableError
  * com mensagens prontas para exibir.
  */
-export async function createBooking(params: { clientId: string; serviceId: string; startAt: Date }) {
+export async function createBooking(params: { clientId: string; serviceId: string; startAt: Date; vehicleId: string; notes?: string | null }) {
   const { clientId, serviceId, startAt } = params;
 
   if (!(startAt instanceof Date) || Number.isNaN(startAt.getTime())) {
     throw new BookingValidationError("Horário inválido. Escolha um horário na lista de horários disponíveis.");
+  }
+
+  // Observações: validadas de novo aqui (defesa em profundidade; a Server Action já usa o mesmo schema).
+  const notesParsed = notesSchema.safeParse(params.notes ?? "");
+  if (!notesParsed.success) {
+    throw new BookingValidationError(notesParsed.error.issues[0]?.message ?? "Observações inválidas.");
+  }
+  const notes = notesParsed.data;
+
+  // O veículo é obrigatório em novas reservas e TEM que ser da própria cliente (o ID vem do formulário: não é confiável).
+  // Veículo de outra pessoa responde igual a veículo inexistente.
+  if (!params.vehicleId || typeof params.vehicleId !== "string") {
+    throw new BookingValidationError(VEHICLE_REQUIRED_MESSAGE);
+  }
+  if (!(await prisma.vehicle.findFirst({ where: { id: params.vehicleId, userId: clientId }, select: { id: true } }))) {
+    throw new BookingValidationError(VEHICLE_REQUIRED_MESSAGE);
   }
 
   const service = await prisma.service.findUnique({ where: { id: serviceId } });
@@ -154,6 +172,10 @@ export async function createBooking(params: { clientId: string; serviceId: strin
       throw new BookingConflictError(SLOT_TAKEN_MESSAGE);
     }
 
+    // Veículo relido SOB o lock, ainda filtrado pela dona: se foi apagado entre a conferência e agora, recusa.
+    const vehicle = await tx.vehicle.findFirst({ where: { id: params.vehicleId, userId: clientId } });
+    if (!vehicle) throw new BookingValidationError(VEHICLE_REQUIRED_MESSAGE);
+
     const created = await tx.appointment.create({
       data: {
         clientId,
@@ -162,6 +184,12 @@ export async function createBooking(params: { clientId: string; serviceId: strin
         serviceName: service.name,
         priceCents: service.priceCents,
         durationMinutes: service.durationMinutes,
+        // Snapshot do veículo: editar ou apagar o veículo depois não altera o histórico.
+        vehicleId: vehicle.id,
+        vehicleBrandSnapshot: vehicle.brand,
+        vehicleModelSnapshot: vehicle.model,
+        vehiclePlateSnapshot: vehicle.plate,
+        notes,
         startAt,
         endAt,
         status: "CONFIRMADA",
@@ -298,7 +326,7 @@ export async function cancelOwnBooking(params: { appointmentId: string; clientId
       throw new BookingValidationError(
         clientCancelMinHours === 0
           ? "Esse atendimento já começou e não pode mais ser cancelado pelo site."
-          : `O cancelamento pelo site é permitido até ${clientCancelMinHours === 1 ? "1 hora" : `${clientCancelMinHours} horas`} antes do horário. Para cancelar agora, fale com o estúdio.`
+          : `O cancelamento pelo site é permitido até ${clientCancelMinHours === 1 ? "1 hora" : `${clientCancelMinHours} horas`} antes do horário. Para cancelar agora, fale com a Garage Zero Zero.`
       );
     }
     const updated = await tx.appointment.update({ where: { id: appointmentId }, data: { status: "CANCELADA" }, include: { client: true } });
@@ -314,6 +342,98 @@ export async function cancelOwnBooking(params: { appointmentId: string; clientId
     return updated;
   });
 
+  await syncAppointmentToGoogle(toSyncPayload(appointment)).catch(() => {});
+  return appointment;
+}
+
+/** Remove de `busy` o trecho `hole` (parte inteira ou parcial de cada intervalo que ele cobre). */
+export function subtractInterval(busy: Interval[], hole: Interval): Interval[] {
+  const result: Interval[] = [];
+  for (const b of busy) {
+    if (b.end <= hole.start || b.start >= hole.end) {
+      result.push(b);
+      continue;
+    }
+    if (b.start < hole.start) result.push({ start: b.start, end: hole.start });
+    if (b.end > hole.end) result.push({ start: hole.end, end: b.end });
+  }
+  return result;
+}
+
+/**
+ * REAGENDAMENTO pela cliente: muda o horário de uma reserva futura e confirmada, mantendo serviço, preço, duração e
+ * veículo. Tudo acontece numa única transação sob o `BookingLock` (a mesma da criação): ou o novo horário é gravado por
+ * inteiro, ou nada muda e a reserva continua no horário anterior (atomicidade). A restrição EXCLUDE do banco é a segunda
+ * barreira contra sobreposição.
+ *
+ * Regras (validadas no servidor):
+ *  - a reserva precisa ser da cliente (de outra pessoa = "não encontrado"), estar CONFIRMADA e ser futura;
+ *  - mesma antecedência mínima do cancelamento (`CLIENT_CANCEL_MIN_HOURS`), contada a partir do horário ATUAL;
+ *  - o novo horário passa pelas mesmas regras de listagem/confirmação (expediente, almoço, grade de 15 min, antecedência,
+ *    horizonte, bloqueios, outras reservas e agenda externa), ignorando a própria reserva;
+ *  - o evento do Google desta reserva não conta como "ocupado" no trecho do horário antigo (senão mover 30 minutos
+ *    conflitaria com a própria reserva).
+ * Sem rede dentro da transação: a agenda externa é consultada ANTES.
+ */
+export async function rescheduleOwnBooking(params: { appointmentId: string; clientId: string; newStartAt: Date; now?: Date }) {
+  const { appointmentId, clientId, newStartAt } = params;
+  if (!(newStartAt instanceof Date) || Number.isNaN(newStartAt.getTime())) {
+    throw new BookingValidationError("Horário inválido. Escolha um horário na lista de horários disponíveis.");
+  }
+  const { clientCancelMinHours } = getBookingPolicy();
+
+  // Leitura prévia (sem lock) só para saber a duração e o intervalo a consultar no Google. A decisão é a de dentro da transação.
+  const before = await prisma.appointment.findFirst({ where: { id: appointmentId, clientId } });
+  if (!before) throw new BookingValidationError("Agendamento não encontrado.");
+  const newEndAt = addMinutes(newStartAt, before.durationMinutes);
+  const externalBusyRaw = await fetchExternalBusy(newStartAt, newEndAt);
+  // Só descontamos o horário antigo se a reserva JÁ tem evento no Google (senão não há evento próprio a ignorar).
+  const ownEvent = before.googleEventId && before.googleSyncStatus === "SINCRONIZADO";
+  const externalBusy = ownEvent ? subtractInterval(externalBusyRaw, { start: before.startAt, end: before.endAt }) : externalBusyRaw;
+
+  const appointment = await runLocked(async (tx) => {
+    const now = params.now ?? new Date();
+    const current = await tx.appointment.findFirst({ where: { id: appointmentId, clientId }, include: { client: true } });
+    if (!current) throw new BookingValidationError("Agendamento não encontrado.");
+    if (current.status !== "CONFIRMADA" || current.startAt.getTime() <= now.getTime()) {
+      throw new BookingValidationError("Só é possível reagendar uma reserva confirmada e futura.");
+    }
+    if (!canClientCancel(current.startAt, now, clientCancelMinHours)) {
+      throw new BookingValidationError(
+        clientCancelMinHours === 0
+          ? "Esse atendimento já começou e não pode mais ser reagendado pelo site."
+          : `O reagendamento pelo site é permitido até ${clientCancelMinHours === 1 ? "1 hora" : `${clientCancelMinHours} horas`} antes do horário. Para mudar agora, fale com a Garage Zero Zero.`
+      );
+    }
+    if (current.durationMinutes !== before.durationMinutes) {
+      throw new BookingValidationError("A reserva mudou enquanto você a alterava. Atualize a página e tente novamente.");
+    }
+    if (newStartAt.getTime() === current.startAt.getTime()) {
+      throw new BookingValidationError("Esse já é o horário do seu agendamento. Escolha outro horário.");
+    }
+    if (!(await isSlotAvailable(newStartAt, current.durationMinutes, tx, current.id, externalBusy, now))) {
+      throw new BookingConflictError(SLOT_TAKEN_MESSAGE);
+    }
+
+    const updated = await tx.appointment.update({
+      where: { id: current.id },
+      // Só horário muda: serviço, preço, duração e veículo (snapshots) permanecem como foram gravados.
+      data: { startAt: newStartAt, endAt: addMinutes(newStartAt, current.durationMinutes) },
+      include: { client: true },
+    });
+    await markPendingIfConnected(tx, updated.id);
+    await recordAuditTx(tx, {
+      action: "booking_rescheduled",
+      actorId: clientId,
+      targetType: "Appointment",
+      targetId: updated.id,
+      detail: `${updated.serviceName} · de ${formatDateTimeBR(current.startAt)} para ${formatDateTimeBR(updated.startAt)}`,
+      dedupeKey: `booking_rescheduled:${updated.id}:${updated.updatedAt.getTime()}`,
+    });
+    return updated;
+  });
+
+  // O evento do Google é ATUALIZADO (mesmo ID determinístico) para o novo horário; falha vira "Falha ao sincronizar" na fila.
   await syncAppointmentToGoogle(toSyncPayload(appointment)).catch(() => {});
   return appointment;
 }

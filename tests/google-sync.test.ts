@@ -7,7 +7,8 @@ import {
   CalendarUnavailableError,
   eventIdForAppointment,
 } from "@/lib/google-calendar";
-import { createBooking, updateAppointmentStatus, retryGoogleSync, cancelOwnBooking, BookingConflictError } from "@/lib/booking";
+import { updateAppointmentStatus, retryGoogleSync, cancelOwnBooking, BookingConflictError } from "@/lib/booking";
+import { createBooking } from "./helpers";
 import { generateSlotCandidatesForDate } from "@/lib/availability";
 import { makeFakeCalendar } from "./fake-calendar";
 

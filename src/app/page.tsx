@@ -1,24 +1,32 @@
-import fs from "node:fs";
-import path from "node:path";
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/db";
 import { formatCents } from "@/lib/format";
-import { HERO_IMAGE } from "@/lib/site";
+import { PHOTOS } from "@/lib/site";
+import { getServiceInfo } from "@/lib/service-catalog";
+import { getServiceCovers } from "@/lib/service-images";
+import { ServiceImageView } from "@/components/ServiceImageView";
+import { buildCalendarRange } from "@/lib/calendar-range";
 import { getSiteSettings } from "@/lib/site-settings-cache";
-import { whatsappLink } from "@/lib/site-settings";
-import { Brand } from "@/components/Brand";
-import { EmptyState, LogoMark } from "@/components/ui";
+import { PublicHeader } from "@/components/PublicHeader";
+import { SiteFooter } from "@/components/SiteFooter";
+import { EmptyState } from "@/components/ui";
+import { ClockIcon, ShieldIcon, SparklesIcon, UserIcon, CalendarIcon } from "@/components/icons";
 
-function heroImageExists() {
-  try {
-    return fs.existsSync(path.join(process.cwd(), "public", HERO_IMAGE.src));
-  } catch {
-    return false;
-  }
-}
+/** Horários oferecidos como PREFERÊNCIA no agendamento rápido (a lista real de vagas aparece na etapa seguinte). */
+const PREFERRED_TIMES = Array.from({ length: 23 }, (_, i) => {
+  const minutes = 8 * 60 + i * 30;
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+});
+
+const DIFFERENTIALS = [
+  { icon: <ShieldIcon className="h-7 w-7" />, title: "Produtos profissionais", text: "Linha profissional que respeita a pintura, o couro e os plásticos do seu veículo." },
+  { icon: <UserIcon className="h-7 w-7" />, title: "Atenção ao detalhe", text: "Cada etapa é conferida: rodas, caixas de roda, frestas e acabamento final." },
+  { icon: <CalendarIcon className="h-7 w-7" />, title: "Agendamento online", text: "Escolha o serviço, o dia e o horário em poucos toques e receba a confirmação na hora." },
+  { icon: <SparklesIcon className="h-7 w-7" />, title: "Acabamento de vitrine", text: "O resultado que você vê na foto: brilho profundo e interior renovado." },
+];
 
 export default async function HomePage() {
   const session = await getSession();
@@ -27,141 +35,169 @@ export default async function HomePage() {
     redirect(session.user.role === "ADMIN" ? "/admin" : "/meus-agendamentos");
   }
 
-  const [services, site] = await Promise.all([
+  const [services, calendar, site] = await Promise.all([
     prisma.service.findMany({ where: { active: true }, orderBy: { name: "asc" } }),
+    buildCalendarRange(),
     getSiteSettings(),
   ]);
-  const whatsapp = whatsappLink(site.whatsapp);
-  const hasPhoto = heroImageExists();
+  const hero = PHOTOS.hero;
+  const featured = services.slice(0, 3);
+  const covers = await getServiceCovers(featured);
 
   return (
     <>
-      <header className="mx-auto flex max-w-6xl items-center justify-between gap-3 px-4 py-4 sm:px-6">
-        <Brand />
-        <nav aria-label="Conta" className="flex items-center gap-1">
-          <Link href="/login" className="btn-ghost">
-            Entrar
-          </Link>
-          <Link href="/cadastro" className="btn-secondary hidden sm:inline-flex">
-            Criar conta
-          </Link>
-        </nav>
-      </header>
+      <PublicHeader />
 
       <main id="conteudo">
-        {/* Abertura */}
-        <section className="relative overflow-hidden">
-          <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-24 h-96 w-96 rounded-full bg-blush blur-3xl" />
-          <div className="relative mx-auto grid max-w-6xl items-center gap-10 px-4 pb-16 pt-8 sm:px-6 md:grid-cols-2 md:pb-24 md:pt-14">
-            <div>
-              <p className="eyebrow">{site.tagline}</p>
-              <div className="gold-rule mt-3" aria-hidden="true" />
-              <h1 className="mt-5 font-display text-4xl font-semibold leading-[1.1] text-plum sm:text-5xl lg:text-6xl">
-                Um tempo para você, <em className="font-medium text-wine">do seu jeito</em>
-              </h1>
-              <p className="mt-5 max-w-md text-base leading-relaxed text-plum-muted sm:text-lg">
-                {site.intro}
-              </p>
-              <div className="mt-8 flex flex-col gap-3 sm:flex-row">
-                <Link href="/agendar" className="btn-primary px-8 text-base">
-                  Agendar horário
-                </Link>
-                <Link href="/cadastro" className="btn-secondary px-8 text-base">
-                  Criar minha conta
-                </Link>
-              </div>
-            </div>
+        {/* Abertura: título, subtítulo e agendamento rápido sobre a foto do carro */}
+        <section className="relative isolate overflow-hidden">
+          <Image src={hero.src} alt="" width={hero.width} height={hero.height} priority sizes="100vw" className="absolute inset-x-0 top-0 -z-10 h-[28rem] w-full object-cover object-[72%_center] opacity-90 [-webkit-mask-image:linear-gradient(to_bottom,black_60%,transparent)] [mask-image:linear-gradient(to_bottom,black_60%,transparent)] md:inset-0 md:h-full md:opacity-80 md:[-webkit-mask-image:none] md:[mask-image:none]" />
+          {/* Celular: véu escuro suave para o texto ler sobre o carro. Desktop: degradê da esquerda (título) para a direita (carro). */}
+          <div className="absolute inset-0 -z-10 bg-gradient-to-b from-ink/60 via-ink/45 to-transparent md:bg-gradient-to-r md:from-ink md:via-ink/75 md:to-ink/10" aria-hidden="true" />
+          <div className="absolute inset-x-0 bottom-0 -z-10 h-40 bg-gradient-to-t from-ink to-transparent" aria-hidden="true" />
 
-            {/* Foto do trabalho (ou composição decorativa até haver uma imagem real) */}
-            <div className="relative mx-auto w-full max-w-sm md:max-w-none">
-              <div className="relative mx-auto aspect-[4/5] w-full max-w-md overflow-hidden rounded-t-[999px] rounded-b-3xl border border-gold/60 bg-blush shadow-lift">
-                {hasPhoto ? (
-                  <Image src={HERO_IMAGE.src} alt={HERO_IMAGE.alt} fill priority sizes="(min-width: 768px) 448px, 90vw" className="object-cover" />
-                ) : (
-                  <div className="flex h-full flex-col items-center justify-center gap-5 bg-gradient-to-b from-blush to-cream px-8 text-center" role="img" aria-label={`Ilustração decorativa do ${site.siteName}`}>
-                    {site.logoUrl ? (
-                      // eslint-disable-next-line @next/next/no-img-element -- logo própria do estúdio
-                      <img src={site.logoUrl} alt="" className="h-28 w-28 rounded-full object-cover" />
-                    ) : (
-                      <LogoMark className="h-20 w-20" />
-                    )}
-                    <p className="font-display text-2xl italic text-wine">cuidado em cada detalhe</p>
-                    <div className="gold-rule" aria-hidden="true" />
-                  </div>
-                )}
+          <div className="mx-auto max-w-6xl px-4 pb-10 pt-12 sm:px-6 md:pb-16 md:pt-20">
+            <p className="eyebrow mb-3">{site.tagline}</p>
+            <h1 className="max-w-3xl text-5xl leading-[0.9] text-fg sm:text-6xl lg:text-7xl">
+              Estética <span className="accent block">Automotiva</span>
+            </h1>
+            <p className="mt-4 max-w-md text-lg font-medium text-fg">Escolha seu serviço e agende um horário.</p>
+            <p className="mt-2 max-w-lg text-sm text-fg-muted">{site.intro}</p>
+            <div className="accent-rule mt-5" aria-hidden="true" />
+            {/* No celular o CTA do cabeçalho fica dentro do menu; este mantém "Agendar agora" à vista. */}
+            <Link href="/agendar" className="btn-primary mt-5 md:hidden">
+              Agendar agora
+            </Link>
+          </div>
+
+          {/* Agendamento rápido: formulário GET. Visitante sem login é levado ao login/cadastro e volta para cá (callbackUrl validado). */}
+          <div className="mx-auto max-w-6xl px-4 pb-10 sm:px-6">
+            <form
+              action="/agendar/horario"
+              method="get"
+              aria-labelledby="agendamento-rapido"
+              className="grid gap-4 rounded-2xl border border-brand/70 bg-ink/90 p-4 backdrop-blur sm:grid-cols-2 sm:p-5 lg:grid-cols-[auto_1fr_1fr_1fr_auto] lg:items-end"
+            >
+              <h2 id="agendamento-rapido" className="font-display text-3xl font-extrabold uppercase italic leading-none text-fg sm:col-span-2 lg:col-span-1 lg:max-w-[9rem]">
+                Agende seu horário
+              </h2>
+              <div>
+                <label className="label" htmlFor="qb-servico">
+                  Serviço
+                </label>
+                <select id="qb-servico" name="serviceId" required className="input" defaultValue={services[0]?.id} disabled={services.length === 0}>
+                  {services.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
               </div>
-            </div>
+              <div>
+                <label className="label" htmlFor="qb-data">
+                  Data
+                </label>
+                <input id="qb-data" name="data" type="date" className="input" min={calendar.todayKey} max={calendar.maxKey} defaultValue={calendar.todayKey} />
+              </div>
+              <div>
+                <label className="label" htmlFor="qb-hora">
+                  Horário preferido
+                </label>
+                <select id="qb-hora" name="hora" className="input" defaultValue="">
+                  <option value="">Qualquer horário</option>
+                  {PREFERRED_TIMES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button type="submit" className="btn-primary w-full sm:col-span-2 lg:col-span-1" disabled={services.length === 0}>
+                Continuar
+              </button>
+            </form>
+            <p className="mt-2 text-xs text-fg-muted">Você confere os horários livres na próxima etapa. Se ainda não entrou, levamos você ao login e voltamos para este agendamento.</p>
           </div>
         </section>
 
-        {/* Serviços */}
-        <section aria-labelledby="servicos" className="bg-white/60 py-16 md:py-24">
-          <div className="mx-auto max-w-6xl px-4 sm:px-6">
-            <p className="eyebrow">Nossos serviços</p>
-            <h2 id="servicos" className="mt-2 font-display text-3xl font-semibold text-plum sm:text-4xl">
-              Escolha o seu momento
-            </h2>
-            <div className="gold-rule mt-4" aria-hidden="true" />
-
-            {services.length === 0 ? (
-              <div className="mt-8">
-                <EmptyState title="Nossos serviços estarão aqui em breve">
-                  Ainda não há serviços disponíveis para agendamento. Volte daqui a pouco.
-                </EmptyState>
-              </div>
-            ) : (
-              <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {services.map((service) => (
-                  <li key={service.id} className="card flex flex-col justify-between gap-6">
-                    <div>
-                      <h3 className="font-display text-xl font-semibold text-plum">{service.name}</h3>
-                      <p className="mt-1 text-sm text-plum-muted">{service.durationMinutes} minutos</p>
-                    </div>
-                    <div className="flex items-end justify-between gap-3">
-                      <p className="font-display text-2xl font-semibold text-wine">{formatCents(service.priceCents)}</p>
-                      <Link href={`/agendar/horario?serviceId=${service.id}`} className="btn-secondary" aria-label={`Selecionar ${service.name}`}>
-                        Selecionar
-                      </Link>
-                    </div>
+        {/* Serviços em destaque */}
+        <section aria-labelledby="destaques" className="mx-auto max-w-6xl px-4 pb-14 sm:px-6">
+          <h2 id="destaques" className="sr-only">
+            Serviços em destaque
+          </h2>
+          {featured.length === 0 ? (
+            <EmptyState title="Nossos serviços estarão aqui em breve">Ainda não há serviços disponíveis para agendamento. Volte daqui a pouco.</EmptyState>
+          ) : (
+            <ul className="grid gap-4 md:grid-cols-3">
+              {featured.map((s) => {
+                const photo = PHOTOS[getServiceInfo(s.name).photo];
+                return (
+                  <li key={s.id}>
+                    <Link href={`/agendar/horario?serviceId=${encodeURIComponent(s.id)}`} className="group block overflow-hidden rounded-2xl border border-brand/60 bg-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-ink">
+                      {/* Abaixo da primeira tela: carregamento preguiçoso (sem priority). Sem foto cadastrada, usa o placeholder. */}
+                      <ServiceImageView photo={covers.get(s.id)} fallback={photo} sizes="(min-width: 768px) 33vw, 100vw" className="aspect-[3/2] w-full object-cover transition group-hover:scale-[1.02]" />
+                      <span className="flex items-center justify-between gap-3 px-4 py-3 font-display text-2xl font-extrabold text-ink">
+                        {s.name}
+                        <span className="text-base">{formatCents(s.priceCents)}</span>
+                      </span>
+                    </Link>
                   </li>
-                ))}
-              </ul>
-            )}
+                );
+              })}
+            </ul>
+          )}
+          <p className="mt-5 text-center">
+            <Link href="/servicos" className="link inline-flex min-h-[44px] items-center">
+              Ver todos os serviços
+            </Link>
+          </p>
+        </section>
+
+        {/* Diferenciais */}
+        <section aria-labelledby="diferenciais" className="border-y border-line bg-surface py-14 md:py-20">
+          <div className="mx-auto max-w-6xl px-4 sm:px-6">
+            <p className="eyebrow">Por que a Garage Zero Zero</p>
+            <h2 id="diferenciais" className="mt-2 text-4xl text-fg sm:text-5xl">
+              Cuidado em <span className="accent">cada detalhe</span>
+            </h2>
+            <div className="accent-rule mt-4" aria-hidden="true" />
+            <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              {DIFFERENTIALS.map((d) => (
+                <li key={d.title} className="rounded-2xl border border-line bg-ink p-5">
+                  <span className="flex h-12 w-12 items-center justify-center rounded-lg border border-brand/60 text-brand">{d.icon}</span>
+                  <h3 className="mt-4 text-xl text-fg">{d.title}</h3>
+                  <p className="mt-1 text-sm text-fg-muted">{d.text}</p>
+                </li>
+              ))}
+            </ul>
           </div>
         </section>
+
+        {/* Todos os serviços, em lista curta */}
+        {services.length > 3 && (
+          <section aria-labelledby="todos" className="mx-auto max-w-6xl px-4 py-14 sm:px-6">
+            <h2 id="todos" className="text-4xl text-fg sm:text-5xl">
+              Nossos <span className="accent">serviços</span>
+            </h2>
+            <div className="accent-rule mt-4" aria-hidden="true" />
+            <ul className="mt-6 grid gap-3 sm:grid-cols-2">
+              {services.map((s) => (
+                <li key={s.id} className="flex items-center justify-between gap-3 rounded-xl border border-line bg-surface px-4 py-3">
+                  <span>
+                    <span className="block font-display text-xl font-bold uppercase tracking-wide text-fg">{s.name}</span>
+                    <span className="flex items-center gap-1.5 text-sm text-fg-muted">
+                      <ClockIcon className="h-4 w-4" /> {s.durationMinutes} min
+                    </span>
+                  </span>
+                  <span className="font-display text-xl font-bold text-brand">{formatCents(s.priceCents)}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
       </main>
 
-      <footer className="border-t border-blush-deep/50 px-4 py-8 text-center text-sm text-plum-muted">
-        <p className="font-semibold text-plum">
-          {site.siteName} · {site.tagline}
-        </p>
-        {(site.address || site.locationNotes) && (
-          <p className="mx-auto mt-3 max-w-md">
-            {site.address}
-            {site.address && site.locationNotes ? " — " : ""}
-            {site.locationNotes}
-          </p>
-        )}
-        {(site.phone || whatsapp || site.instagramUrl) && (
-          <p className="mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-1">
-            {site.phone && (
-              <a className="link" href={`tel:${site.phone.replace(/[^\d+]/g, "")}`}>
-                Telefone: {site.phone}
-              </a>
-            )}
-            {whatsapp && (
-              <a className="link" href={whatsapp} target="_blank" rel="noopener noreferrer">
-                WhatsApp: {site.whatsapp}
-              </a>
-            )}
-            {site.instagramUrl && (
-              <a className="link" href={site.instagramUrl} target="_blank" rel="noopener noreferrer">
-                Instagram
-              </a>
-            )}
-          </p>
-        )}
-      </footer>
+      <SiteFooter />
     </>
   );
 }

@@ -96,28 +96,28 @@ export function SiteSettingsForm({ initial }: { initial: SettingsFormValues }) {
       )}
 
       <section className="card space-y-5" aria-labelledby="identidade">
-        <h2 id="identidade" className="font-display text-xl font-semibold text-plum">
+        <h2 id="identidade" className="font-display text-xl font-semibold text-fg">
           Identidade
         </h2>
 
         {/* Prévia do cabeçalho e da abertura, atualizada enquanto se digita */}
-        <div aria-label="Prévia da identidade visual" className="rounded-2xl border border-blush-deep/60 bg-cream p-4">
+        <div aria-label="Prévia da identidade visual" className="rounded-2xl border border-line bg-ink p-4">
           <p className="eyebrow mb-3">Prévia</p>
-          <div className="flex items-center gap-2.5 rounded-full border border-neutral-line bg-white px-3 py-2">
+          <div className="flex items-center gap-2.5 rounded-full border border-line bg-surface px-3 py-2">
             {shownLogo ? (
               // eslint-disable-next-line @next/next/no-img-element -- prévia local (blob:) ou logo própria
               <img src={shownLogo} alt="" className="h-9 w-9 flex-none rounded-full object-cover" />
             ) : (
               <LogoMark className="h-9 w-9 flex-none" />
             )}
-            <span className="font-display text-lg font-semibold leading-none text-plum">{name || "Nome do estúdio"}</span>
+            <span className="font-display text-lg font-semibold leading-none text-fg">{name || "Nome da empresa"}</span>
           </div>
-          <p className="eyebrow mt-4">{tagline || "Slogan do estúdio"}</p>
-          <p className="mt-1 max-w-md text-sm leading-relaxed text-plum-muted">{intro || "Texto de apresentação"}</p>
+          <p className="eyebrow mt-4">{tagline || "Slogan da empresa"}</p>
+          <p className="mt-1 max-w-md text-sm leading-relaxed text-fg-muted">{intro || "Texto de apresentação"}</p>
         </div>
 
         <div>
-          <label className="label" htmlFor="siteName">Nome do site ou estúdio</label>
+          <label className="label" htmlFor="siteName">Nome da empresa</label>
           <input id="siteName" name="siteName" required maxLength={SETTINGS_LIMITS.siteNameMax} className="input" value={name} onChange={(e) => setName(e.target.value)} aria-invalid={errors.siteName ? true : undefined} aria-describedby={errors.siteName ? "siteName-erro" : undefined} />
           <FieldError id="siteName" message={errors.siteName} />
         </div>
@@ -139,7 +139,7 @@ export function SiteSettingsForm({ initial }: { initial: SettingsFormValues }) {
         <div>
           <label className="label" htmlFor="logo">Logo</label>
           <div className="flex flex-wrap items-center gap-4">
-            <div className="flex h-20 w-20 flex-none items-center justify-center overflow-hidden rounded-full border border-gold/50 bg-white">
+            <div className="flex h-20 w-20 flex-none items-center justify-center overflow-hidden rounded-full border border-brand/50 bg-surface">
               {shownLogo ? (
                 // eslint-disable-next-line @next/next/no-img-element -- prévia local (blob:) ou logo própria
                 <img src={shownLogo} alt="Logo atual" className="h-full w-full object-cover" />
@@ -148,16 +148,16 @@ export function SiteSettingsForm({ initial }: { initial: SettingsFormValues }) {
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <input id="logo" name="logo" type="file" accept="image/png,image/jpeg,image/webp" onChange={onFile} className="block w-full text-sm text-plum file:mr-3 file:min-h-[44px] file:cursor-pointer file:rounded-full file:border file:border-wine/40 file:bg-white file:px-4 file:font-semibold file:text-wine" aria-describedby="logo-dica logo-erro" />
-              {initial.logoInfo && !preview && <p className="mt-1 text-xs text-plum-muted">Logo atual: {initial.logoInfo}. Escolha um novo arquivo para substituir.</p>}
-              {preview && <p className="mt-1 text-xs text-plum-muted">Nova logo selecionada — ela só vale depois de salvar.</p>}
+              <input id="logo" name="logo" type="file" accept="image/png,image/jpeg,image/webp" onChange={onFile} className="block w-full text-sm text-fg file:mr-3 file:min-h-[44px] file:cursor-pointer file:rounded-full file:border file:border-brand/40 file:bg-surface file:px-4 file:font-semibold file:text-brand" aria-describedby="logo-dica logo-erro" />
+              {initial.logoInfo && !preview && <p className="mt-1 text-xs text-fg-muted">Logo atual: {initial.logoInfo}. Escolha um novo arquivo para substituir.</p>}
+              {preview && <p className="mt-1 text-xs text-fg-muted">Nova logo selecionada — ela só vale depois de salvar.</p>}
             </div>
           </div>
           <p id="logo-dica" className="hint-text">{LOGO_GUIDANCE}</p>
           {(fileProblem || errors.logo) && <FieldError id="logo" message={fileProblem ?? errors.logo} />}
           {initial.logoUrl && (
-            <label className="mt-3 flex items-center gap-2 text-sm text-plum-muted">
-              <input type="checkbox" name="removeLogo" checked={removeLogo} onChange={(e) => { setRemoveLogo(e.target.checked); if (e.target.checked) setPreview(null); }} className="h-5 w-5 rounded border-plum-line text-wine focus:ring-wine" />
+            <label className="mt-3 flex items-center gap-2 text-sm text-fg-muted">
+              <input type="checkbox" name="removeLogo" checked={removeLogo} onChange={(e) => { setRemoveLogo(e.target.checked); if (e.target.checked) setPreview(null); }} className="h-5 w-5 rounded border-line-strong text-brand focus:ring-brand" />
               Remover a logo e voltar à marca padrão
             </label>
           )}
@@ -165,7 +165,7 @@ export function SiteSettingsForm({ initial }: { initial: SettingsFormValues }) {
       </section>
 
       <section className="card space-y-5" aria-labelledby="contatos">
-        <h2 id="contatos" className="font-display text-xl font-semibold text-plum">
+        <h2 id="contatos" className="font-display text-xl font-semibold text-fg">
           Contatos e localização
         </h2>
         <div className="grid gap-5 sm:grid-cols-2">
@@ -182,7 +182,7 @@ export function SiteSettingsForm({ initial }: { initial: SettingsFormValues }) {
         </div>
         <div>
           <label className="label" htmlFor="instagramUrl">Instagram</label>
-          <input id="instagramUrl" name="instagramUrl" autoComplete="off" maxLength={200} value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)} className="input" placeholder="@seuestudio ou instagram.com/seuestudio" />
+          <input id="instagramUrl" name="instagramUrl" autoComplete="off" maxLength={200} value={instagramUrl} onChange={(e) => setInstagramUrl(e.target.value)} className="input" placeholder="@garagezerozero ou instagram.com/garagezerozero" />
           <FieldError id="instagramUrl" message={errors.instagramUrl} />
         </div>
         <div>
@@ -192,8 +192,8 @@ export function SiteSettingsForm({ initial }: { initial: SettingsFormValues }) {
           <FieldError id="address" message={errors.address} />
         </div>
         <div>
-          <label className="label" htmlFor="locationNotes">Instruções de localização</label>
-          <textarea id="locationNotes" name="locationNotes" rows={3} maxLength={SETTINGS_LIMITS.locationNotesMax} value={locationNotes} onChange={(e) => setLocationNotes(e.target.value)} className="input" placeholder="Ex.: sala 12, 2º andar; interfone 12; estacionamento na rua lateral." />
+          <label className="label" htmlFor="locationNotes">Instruções de chegada</label>
+          <textarea id="locationNotes" name="locationNotes" rows={3} maxLength={SETTINGS_LIMITS.locationNotesMax} value={locationNotes} onChange={(e) => setLocationNotes(e.target.value)} className="input" placeholder="Ex.: portão preto ao lado da padaria; estacionamento nos fundos." />
           <FieldError id="locationNotes" message={errors.locationNotes} />
         </div>
       </section>

@@ -11,7 +11,22 @@ export function horarioUrl(serviceId: string, opts: { conflito?: boolean } = {})
   return `/agendar/horario?${params.toString()}`;
 }
 
-/** /agendar/revisar?serviceId=...&startAt=...  (startAt = instante ISO escolhido). */
-export function revisarUrl(serviceId: string, startAtIso: string): string {
-  return `/agendar/revisar?${new URLSearchParams({ serviceId, startAt: startAtIso }).toString()}`;
+/** /agendar/veiculo?serviceId=...&startAt=...  (etapa 3: veículo e observações). */
+export function veiculoUrl(serviceId: string, startAtIso: string): string {
+  return `/agendar/veiculo?${new URLSearchParams({ serviceId, startAt: startAtIso }).toString()}`;
+}
+
+/**
+ * /agendar/revisar?serviceId=...&startAt=...&vehicleId=...  (startAt = instante ISO escolhido).
+ * As observações NÃO vão na URL (ficam num cookie de curta duração): texto livre na URL iria para histórico e logs.
+ */
+export function revisarUrl(serviceId: string, startAtIso: string, vehicleId?: string): string {
+  const params = new URLSearchParams({ serviceId, startAt: startAtIso });
+  if (vehicleId) params.set("vehicleId", vehicleId);
+  return `/agendar/revisar?${params.toString()}`;
+}
+
+/** /agendar/confirmado/<id>  (só a dona da reserva a vê; o id é revalidado no servidor). */
+export function confirmadoUrl(appointmentId: string): string {
+  return `/agendar/confirmado/${encodeURIComponent(appointmentId)}`;
 }

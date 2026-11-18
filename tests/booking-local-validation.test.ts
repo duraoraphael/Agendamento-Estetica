@@ -3,7 +3,8 @@ import { resetDb, openAllWeek, createAdmin, createClient, createService, nextDay
 import { prisma } from "@/lib/db";
 import { encryptSecret } from "@/lib/crypto";
 import { __setCalendarFactoryForTests } from "@/lib/google-calendar";
-import { createBooking, BookingConflictError, BookingLimitError, BookingValidationError } from "@/lib/booking";
+import { BookingConflictError, BookingLimitError, BookingValidationError } from "@/lib/booking";
+import { createBooking } from "./helpers";
 import { makeFakeCalendar } from "./fake-calendar";
 
 async function connectGoogle() {

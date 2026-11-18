@@ -20,6 +20,10 @@ export const E2E_ENV = {
   ADMIN_EMAIL: "admin.e2e@example.com",
   ADMIN_PASSWORD: "E2E-Admin#2026",
   ADMIN_NAME: "Admin E2E",
+  // Fotos dos serviços: Supabase Storage FALSO em 127.0.0.1 (e2e/fake-storage.ts, subido por e2e/start-e2e.ts).
+  // A chave é inventada e só vale lá.
+  SUPABASE_URL: "http://127.0.0.1:54340",
+  SUPABASE_SERVICE_ROLE_KEY: "e2e-service-role-key-not-real",
 };
 Object.assign(process.env, E2E_ENV);
 

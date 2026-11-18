@@ -28,12 +28,54 @@ model User {
   // Usado apenas pelo perfil ADMIN para saber quais agendamentos ainda não
   // foram "vistos" no painel (notificação de novo agendamento).
   notificationsSeenAt DateTime @default(now())
+  // Sobe a cada redefinição/troca de senha. O JWT guarda a versão com que foi emitido; se não bater com a do banco, a
+  // sessão deixa de valer (veja src/lib/session.ts). É o que "encerra as outras sessões" depois de uma troca de senha.
+  sessionVersion      Int      @default(0)
   createdAt           DateTime @default(now())
 
   appointments        Appointment[]
   googleCalendarAccount GoogleCalendarAccount?
+  vehicles            Vehicle[]
+  passwordResetTokens PasswordResetToken[]
 
   @@index([role])
+}
+
+// Veículos da cliente (um por placa e por dona). A placa é gravada NORMALIZADA (maiúsculas, sem separador); o formato
+// aceito (antigo AAA9999 e Mercosul AAA9A99) é garantido por CHECK na migração e por src/lib/validation.ts.
+// O agendamento guarda uma CÓPIA (snapshot) dos dados: editar ou apagar o veículo nunca muda reservas já feitas.
+model Vehicle {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  brand     String
+  model     String
+  plate     String
+  year      Int?
+  color     String?
+  nickname  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  appointments Appointment[]
+
+  @@unique([userId, plate])
+  @@index([userId])
+}
+
+// Recuperação de senha. Guarda SÓ o hash SHA-256 do token (o token em si só existe no e-mail enviado). Uso único,
+// validade curta; pedir um novo link invalida os anteriores. Veja src/lib/password-reset.ts.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Service {
@@ -46,6 +88,35 @@ model Service {
   updatedAt       DateTime @updatedAt
 
   appointments    Appointment[]
+  images          ServiceImage[]
+}
+
+// Fotos dos serviços. Os bytes ficam no Supabase Storage (bucket público `service-images`); aqui só os metadados.
+// A menor `position` é a capa (não há campo isCover). Teto de 6 por serviço garantido sob trava da linha do Service.
+model ServiceImage {
+  id          String   @id @default(cuid())
+  serviceId   String
+  service     Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  objectPath  String   @unique
+  altText     String   @default("")
+  position    Int
+  width       Int
+  height      Int
+  sizeBytes   Int
+  contentType String
+  createdAt   DateTime @default(now())
+
+  @@index([serviceId, position])
+}
+
+// Objetos do Storage que ficaram sem metadado (remoção que o Storage recusou). Limpos por `npm run storage:cleanup`.
+// Guarda só o caminho aleatório gerado pelo servidor.
+model StorageCleanup {
+  id         String   @id @default(cuid())
+  bucket     String
+  objectPath String   @unique
+  attempts   Int      @default(0)
+  createdAt  DateTime @default(now())
 }
 
 // Expediente semanal. No máximo um registro por dia da semana (0=domingo .. 6=sábado).
@@ -83,6 +154,16 @@ model Appointment {
   priceCents      Int
   durationMinutes Int
 
+  // Veículo atendido. `vehicleId` é opcional por causa das reservas anteriores à Garage Zero Zero (sem veículo) e vira
+  // nulo se a cliente apagar o veículo; os snapshots abaixo preservam marca, modelo e placa no histórico.
+  vehicleId            String?
+  vehicle              Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: SetNull)
+  vehicleBrandSnapshot String?
+  vehicleModelSnapshot String?
+  vehiclePlateSnapshot String?
+  // Observações da cliente (até 500 caracteres; texto puro, escapado na exibição).
+  notes                String?
+
   startAt DateTime
   endAt   DateTime
   status  String @default("CONFIRMADA")
@@ -100,6 +181,7 @@ model Appointment {
   @@index([startAt])
   @@index([status])
   @@index([clientId])
+  @@index([vehicleId])
   @@index([startAt, status])
   // Contagem de "novos agendamentos" do painel e fila de sincronização com o Google.
   @@index([createdAt])

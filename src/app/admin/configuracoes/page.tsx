@@ -17,9 +17,9 @@ export default async function ConfiguracoesPage() {
   return (
     <div className="space-y-6">
       <div>
-        <p className="eyebrow">Estúdio</p>
+        <p className="eyebrow">Empresa</p>
         <h1 className="page-title mt-1">Configurações</h1>
-        <p className="mt-1 text-sm text-plum-muted">
+        <p className="mt-1 text-sm text-fg-muted">
           Nome, logo e contatos que aparecem no site, no login, nas reservas e no Google Agenda.{" "}
           <Link href="/admin/configuracoes/google" className="link">
             Conexão com o Google Agenda

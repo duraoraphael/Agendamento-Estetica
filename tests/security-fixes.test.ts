@@ -49,7 +49,7 @@ describe("Corpo de requisição limitado (L11)", () => {
     expect(res.status).toBe(413);
     expect(await prisma.user.count()).toBe(0);
 
-    const ok = await cadastro(post(JSON.stringify({ name: "Maria Silva", email: "maria.ok@example.com", phone: "(11) 91234-5678", password: "Tulipa-Rosa-42", confirmPassword: "Tulipa-Rosa-42" })));
+    const ok = await cadastro(post(JSON.stringify({ name: "Maria Silva", email: "maria.ok@example.com", phone: "(11) 91234-5678", password: "Tulipa-Rosa-42", confirmPassword: "Tulipa-Rosa-42", consent: true })));
     expect(ok.status).toBe(200);
   });
 });

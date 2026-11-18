@@ -13,7 +13,7 @@ import type { Role } from "./types";
 export const getSession = cache(async () => getServerSession(authOptions));
 
 const roleInDb = cache(async (userId: string) =>
-  prisma.user.findUnique({ where: { id: userId }, select: { role: true } })
+  prisma.user.findUnique({ where: { id: userId }, select: { role: true, sessionVersion: true } })
 );
 
 /** Garante que existe uma sessão válida; caso contrário redireciona para o login. */
@@ -25,7 +25,8 @@ export async function requireUser() {
   // O JWT dura 7 dias e carrega o papel: confere no banco para que conta removida ou rebaixada
   // perca o acesso imediatamente, sem esperar o token expirar.
   const current = await roleInDb(session.user.id);
-  if (!current || current.role !== session.user.role) {
+  // `sessionVersion` sobe a cada redefinição/troca de senha: tokens emitidos antes (inclusive em outros aparelhos) deixam de valer.
+  if (!current || current.role !== session.user.role || current.sessionVersion !== (session.user.sessionVersion ?? 0)) {
     redirect("/login");
   }
   return session.user;
@@ -57,7 +58,7 @@ export async function getAdminApiUser() {
   const session = await getSession();
   if (!session?.user || session.user.role !== ("ADMIN" as Role)) return null;
   // Confere no banco: administradora removida ou rebaixada perde o acesso na hora.
-  const current = await prisma.user.findUnique({ where: { id: session.user.id }, select: { role: true } });
-  if (!current || current.role !== "ADMIN") return null;
+  const current = await prisma.user.findUnique({ where: { id: session.user.id }, select: { role: true, sessionVersion: true } });
+  if (!current || current.role !== "ADMIN" || current.sessionVersion !== (session.user.sessionVersion ?? 0)) return null;
   return session.user;
 }

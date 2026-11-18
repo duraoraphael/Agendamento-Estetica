@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import EmbeddedPostgres from "embedded-postgres";
+import { startFakeStorage } from "./fake-storage";
 
 /**
  * Sobe TUDO o que os testes de tela precisam, num único processo que o Playwright encerra no fim:
@@ -31,10 +32,13 @@ async function main() {
     onLog: () => {},
     onError: () => {},
   });
+  // Supabase Storage falso (127.0.0.1): as fotos dos serviços vão para a memória deste processo, nunca para a rede.
+  const storage = await startFakeStorage();
   let stopping = false;
   const cleanup = async () => {
     if (stopping) return;
     stopping = true;
+    storage.close();
     await pg.stop().catch(() => {});
     fs.rmSync(dataDir, { recursive: true, force: true });
   };

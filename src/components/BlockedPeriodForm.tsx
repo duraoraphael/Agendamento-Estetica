@@ -9,7 +9,7 @@ export function BlockedPeriodForm() {
 
   return (
     <form action={formAction} className="card space-y-3">
-      <h2 className="font-semibold text-plum">Novo bloqueio (feriado, folga, férias...)</h2>
+      <h2 className="font-semibold text-fg">Novo bloqueio (feriado, folga, férias...)</h2>
       {errors._form && <div className="notice-error" role="alert">{errors._form}</div>}
 
       <div className="grid grid-cols-3 gap-2">

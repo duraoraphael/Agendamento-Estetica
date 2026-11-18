@@ -76,13 +76,13 @@ const optionalPhone = (label: string) =>
     .refine((v) => v === "" || phoneRegex.test(v), `${label}: informe o número com DDD, ex: (11) 90000-0000.`);
 
 export const siteSettingsSchema = z.object({
-  siteName: optionalText(SETTINGS_LIMITS.siteNameMax, "Nome").refine((v) => v.length >= 2, "Informe o nome do estúdio (mínimo 2 caracteres)."),
+  siteName: optionalText(SETTINGS_LIMITS.siteNameMax, "Nome").refine((v) => v.length >= 2, "Informe o nome da empresa (mínimo 2 caracteres)."),
   tagline: optionalText(SETTINGS_LIMITS.taglineMax, "Slogan"),
   intro: optionalText(SETTINGS_LIMITS.introMax, "Apresentação", true),
   phone: optionalPhone("Telefone"),
   whatsapp: optionalPhone("WhatsApp"),
   address: optionalText(SETTINGS_LIMITS.addressMax, "Endereço"),
-  locationNotes: optionalText(SETTINGS_LIMITS.locationNotesMax, "Instruções de localização", true),
+  locationNotes: optionalText(SETTINGS_LIMITS.locationNotesMax, "Instruções de chegada", true),
   instagramUrl: z
     .string()
     .trim()

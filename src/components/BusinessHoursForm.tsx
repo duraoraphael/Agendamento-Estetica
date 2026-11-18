@@ -28,9 +28,9 @@ export function BusinessHoursForm({ hoursByDay }: { hoursByDay: Record<number, D
         {WEEKDAY_LABELS.map((label, day) => {
           const d = hoursByDay[day];
           return (
-            <div key={day} className="rounded-xl border border-neutral-line p-3">
-              <label className="flex items-center gap-2 text-sm font-semibold text-plum">
-                <input type="checkbox" name={`active-${day}`} defaultChecked={d?.active ?? false} className="h-5 w-5 rounded border-plum-line text-wine focus:ring-wine" />
+            <div key={day} className="rounded-xl border border-line p-3">
+              <label className="flex items-center gap-2 text-sm font-semibold text-fg">
+                <input type="checkbox" name={`active-${day}`} defaultChecked={d?.active ?? false} className="h-5 w-5 rounded border-line-strong text-brand focus:ring-brand" />
                 {label}
               </label>
 

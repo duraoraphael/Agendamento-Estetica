@@ -2,21 +2,31 @@ import { redirect } from "next/navigation";
 import { prisma } from "@/lib/db";
 import { formatCents, formatDateBR, formatTimeBR } from "@/lib/format";
 import { ConfirmBookingForm } from "@/components/ConfirmBookingForm";
-import { Page, Stepper } from "@/components/ui";
+import { Page, PageHeader, Stepper } from "@/components/ui";
 import { cancelPolicyText, getBookingPolicy } from "@/lib/policy";
-import { StudioInfo } from "@/components/StudioInfo";
+import { LocationInfo } from "@/components/LocationInfo";
 import { getSiteSettings } from "@/lib/site-settings-cache";
-import { horarioUrl } from "@/lib/booking-urls";
+import { horarioUrl, veiculoUrl } from "@/lib/booking-urls";
+import { requireClient } from "@/lib/session";
+import { getVehicleForUser, vehicleLabel } from "@/lib/vehicles";
+import { getNotesDraft } from "@/lib/booking-draft";
+import { maskPlate } from "@/lib/plate";
+import { getServiceInfo } from "@/lib/service-catalog";
+import { PHOTOS } from "@/lib/site";
+import { getServiceCovers } from "@/lib/service-images";
+import { ServiceImageView } from "@/components/ServiceImageView";
+import { CalendarIcon, CarIcon, ClockIcon, ServiceIcon } from "@/components/icons";
+
+export const metadata = { title: "Revise seu agendamento" };
 
 export default async function RevisarAgendamentoPage({
   searchParams: searchParamsPromise,
 }: {
-  searchParams: Promise<{ serviceId?: string; startAt?: string }>;
+  searchParams: Promise<{ serviceId?: string; startAt?: string; vehicleId?: string }>;
 }) {
-  // Next 15: searchParams é assíncrono (em Next 14 o await é inofensivo).
-  const searchParams = await searchParamsPromise;
-  const { serviceId, startAt } = searchParams;
+  const { serviceId, startAt, vehicleId } = await searchParamsPromise;
   if (!serviceId || !startAt) redirect("/agendar");
+  const user = await requireClient();
 
   const [service, site] = await Promise.all([prisma.service.findUnique({ where: { id: serviceId } }), getSiteSettings()]);
   if (!service || !service.active) redirect("/agendar?indisponivel=1");
@@ -26,41 +36,58 @@ export default async function RevisarAgendamentoPage({
     redirect(horarioUrl(serviceId, { conflito: true }));
   }
 
-  return (
-    <Page>
-      <Stepper current={3} serviceId={service.id} />
-      <h1 className="page-title mt-8">Revise seu agendamento</h1>
-      <p className="mt-2 text-plum-muted">Passo 3 de 3 — confira os dados antes de confirmar.</p>
+  // O veículo vem da URL, mas só vale se for DA CLIENTE (veículo de outra pessoa = volta para escolher).
+  const vehicle = vehicleId ? await getVehicleForUser(user.id, vehicleId) : null;
+  if (!vehicle) redirect(veiculoUrl(serviceId, startDate.toISOString()));
+  const notes = (await getNotesDraft()) ?? "";
+  const info = getServiceInfo(service.name);
+  const cover = (await getServiceCovers([service])).get(service.id);
 
-      <section aria-label="Resumo do agendamento" className="mt-6 overflow-hidden rounded-2xl border border-gold/50 bg-white shadow-soft">
-        <div className="bg-blush px-6 py-4">
-          <p className="eyebrow">Serviço</p>
-          <p className="mt-1 font-display text-2xl font-semibold text-plum">{service.name}</p>
-        </div>
-        <dl className="divide-y divide-blush-deep/50 px-6">
-          <div className="flex items-baseline justify-between gap-4 py-4">
-            <dt className="text-plum-muted">Data</dt>
-            <dd className="font-semibold text-plum">{formatDateBR(startDate)}</dd>
-          </div>
-          <div className="flex items-baseline justify-between gap-4 py-4">
-            <dt className="text-plum-muted">Hora</dt>
-            <dd className="font-display text-2xl font-semibold text-plum">{formatTimeBR(startDate)}</dd>
-          </div>
-          <div className="flex items-baseline justify-between gap-4 py-4">
-            <dt className="text-plum-muted">Duração</dt>
-            <dd className="font-medium text-plum">{service.durationMinutes} min</dd>
-          </div>
+  const rows = [
+    { icon: <ServiceIcon name={info.icon} className="h-6 w-6" />, label: "Serviço", value: service.name },
+    { icon: <CalendarIcon className="h-6 w-6" />, label: "Data e horário", value: `${formatDateBR(startDate)} às ${formatTimeBR(startDate)}` },
+    { icon: <ClockIcon className="h-6 w-6" />, label: "Duração", value: `${service.durationMinutes} min` },
+    { icon: <CarIcon className="h-6 w-6" />, label: "Veículo", value: `${vehicleLabel(vehicle)} · placa ${maskPlate(vehicle.plate)}` },
+  ];
+
+  return (
+    <Page width="lg">
+      <Stepper current={4} serviceId={service.id} startAt={startDate.toISOString()} />
+      <div className="mt-8">
+        <PageHeader title="Revise seu" accent="agendamento" subtitle="Etapa 4 de 4 — confira os dados abaixo e confirme." />
+      </div>
+
+      <section aria-label="Resumo do agendamento" className="mt-6 overflow-hidden rounded-2xl border border-brand/50 bg-surface shadow-soft">
+        {/* Decorativa: o nome do serviço está logo abaixo. Sem foto cadastrada, usa o placeholder. */}
+        <ServiceImageView photo={cover} fallback={PHOTOS[info.photo]} decorative sizes="(min-width: 768px) 672px, 100vw" className="aspect-[16/7] w-full object-cover" />
+        <dl className="divide-y divide-line px-5">
+          {rows.map((r) => (
+            <div key={r.label} className="flex items-center gap-4 py-4">
+              <span className="text-brand">{r.icon}</span>
+              <div className="min-w-0">
+                <dt className="text-sm text-fg-muted">{r.label}</dt>
+                <dd className="font-display text-xl font-bold tracking-wide text-fg">{r.value}</dd>
+              </div>
+            </div>
+          ))}
+          {notes && (
+            <div className="py-4">
+              <dt className="text-sm text-fg-muted">Observações</dt>
+              {/* Texto da cliente: exibido como texto puro (React escapa), preservando as quebras de linha. */}
+              <dd className="mt-1 whitespace-pre-line break-words text-fg">{notes}</dd>
+            </div>
+          )}
           <div className="flex items-baseline justify-between gap-4 py-5">
-            <dt className="font-semibold text-plum">Valor</dt>
-            <dd className="font-display text-3xl font-semibold text-wine">{formatCents(service.priceCents)}</dd>
+            <dt className="font-semibold text-fg">Valor</dt>
+            <dd className="font-display text-3xl font-extrabold text-brand">{formatCents(service.priceCents)}</dd>
           </div>
         </dl>
       </section>
 
-      <StudioInfo site={site} className="mt-4" />
+      <LocationInfo site={site} className="mt-4" />
 
-      <p className="mt-4 text-sm text-plum-muted">{cancelPolicyText(getBookingPolicy().clientCancelMinHours)}</p>
-      <ConfirmBookingForm serviceId={service.id} startAtIso={startDate.toISOString()} />
+      <p className="mt-4 text-sm text-fg-muted">{cancelPolicyText(getBookingPolicy().clientCancelMinHours)}</p>
+      <ConfirmBookingForm serviceId={service.id} startAtIso={startDate.toISOString()} vehicleId={vehicle.id} notes={notes} />
     </Page>
   );
 }

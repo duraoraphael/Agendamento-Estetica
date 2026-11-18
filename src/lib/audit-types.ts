@@ -5,7 +5,7 @@
  * Categorias que NÃO existem porque o site não tem o fluxo correspondente:
  *  - "Entrada" / "Saída" (check-in / check-out): não há registro de chegada ou saída do atendimento. A situação de uma
  *    reserva (CONFIRMADA, CONCLUIDA, CANCELADA, FALTA) é alterada pela administradora e aparece em "Marcação".
- *  - Remarcação: não existe ação de remarcar; só criar e cancelar (e a administradora mudar a situação).
+ * A remarcação pela cliente (booking_rescheduled) passou a existir com a Garage Zero Zero e aparece em "Marcação".
  * Não foram criados fluxos novos só para gerar log.
  */
 export const AUDIT_CATEGORIES = ["CADASTRO", "LOGIN", "LOGOUT", "MARCACAO", "ADMIN", "INTEGRACAO"] as const;
@@ -45,11 +45,30 @@ export const AUDIT_ACTIONS = {
   booking_created: { category: "MARCACAO", label: "Agendamento criado" },
   booking_canceled_by_client: { category: "MARCACAO", label: "Agendamento cancelado pela cliente" },
   booking_status_changed: { category: "MARCACAO", label: "Situação do agendamento alterada" },
+  booking_rescheduled: { category: "MARCACAO", label: "Agendamento remarcado pela cliente" },
+  // Veículos e conta da cliente (sem placa, nome, e-mail ou celular no registro: só o ID interno)
+  vehicle_created: { category: "CADASTRO", label: "Veículo cadastrado" },
+  vehicle_updated: { category: "CADASTRO", label: "Veículo alterado" },
+  vehicle_deleted: { category: "CADASTRO", label: "Veículo removido" },
+  profile_updated: { category: "CADASTRO", label: "Dados da conta alterados" },
+  // Senha
+  password_reset_requested: { category: "LOGIN", label: "Recuperação de senha solicitada" },
+  password_reset_blocked: { category: "LOGIN", label: "Recuperação de senha bloqueada por excesso de pedidos" },
+  password_reset_completed: { category: "LOGIN", label: "Senha redefinida pelo link de recuperação" },
+  password_reset_invalid: { category: "LOGIN", label: "Link de recuperação inválido, expirado ou já usado" },
+  password_changed: { category: "LOGIN", label: "Senha alterada pela própria cliente" },
   booking_rate_limited: { category: "MARCACAO", label: "Agendamento/cancelamento bloqueado por excesso de pedidos" },
   // Ações administrativas
   service_created: { category: "ADMIN", label: "Serviço criado" },
   service_updated: { category: "ADMIN", label: "Serviço alterado" },
   service_toggled: { category: "ADMIN", label: "Serviço ativado/desativado" },
+  service_deleted: { category: "ADMIN", label: "Serviço excluído" },
+  // Fotos dos serviços (só ID do serviço/foto e posições; nunca bytes, caminho do arquivo, URL ou nome original)
+  service_image_added: { category: "ADMIN", label: "Foto de serviço adicionada" },
+  service_image_reordered: { category: "ADMIN", label: "Fotos de serviço reordenadas" },
+  service_image_removed: { category: "ADMIN", label: "Foto de serviço removida" },
+  service_image_alt_updated: { category: "ADMIN", label: "Texto alternativo de foto alterado" },
+  service_image_cleanup_pending: { category: "ADMIN", label: "Arquivo de foto aguardando limpeza no Storage" },
   business_hours_saved: { category: "ADMIN", label: "Expediente salvo" },
   blocked_period_created: { category: "ADMIN", label: "Bloqueio de horário criado" },
   blocked_period_deleted: { category: "ADMIN", label: "Bloqueio de horário removido" },
