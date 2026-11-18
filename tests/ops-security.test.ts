@@ -5,7 +5,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { safeCallbackPath } from "@/lib/safe-redirect";
 import { backupFileName, positiveIntOr, selectBackupsToDelete } from "../scripts/lib/backup-retention";
-import { register } from "@/instrumentation";
+import { register, shouldStartGoogleSyncWorker } from "@/instrumentation";
 
 const root = path.resolve(__dirname, "..");
 const run = (script: string, args: string[], env: Record<string, string> = {}) => {
@@ -121,5 +121,27 @@ describe("Segredos fracos em produção", () => {
   it("fora de produção e durante o build não exige", () => {
     withEnv({ NODE_ENV: "development", NEXTAUTH_SECRET: "" }, () => expect(() => register()).not.toThrow());
     withEnv({ NODE_ENV: "production", NEXT_PHASE: "phase-production-build", NEXTAUTH_SECRET: "" }, () => expect(() => register()).not.toThrow());
+  });
+});
+
+describe("Worker do Google Agenda no ambiente de hospedagem", () => {
+  it("não inicia temporizador em build, testes, Edge, Vercel ou quando foi desligado", () => {
+    const base = { NODE_ENV: "production", NEXT_RUNTIME: "nodejs", NEXT_PHASE: "phase-production-server" };
+
+    expect(shouldStartGoogleSyncWorker({ ...base, NEXT_PHASE: "phase-production-build" })).toBe(false);
+    expect(shouldStartGoogleSyncWorker({ ...base, NODE_ENV: "test" })).toBe(false);
+    expect(shouldStartGoogleSyncWorker({ ...base, NEXT_RUNTIME: "edge" })).toBe(false);
+    expect(shouldStartGoogleSyncWorker({ ...base, VERCEL: "1" })).toBe(false);
+    expect(shouldStartGoogleSyncWorker({ ...base, GOOGLE_SYNC_WORKER: "off" })).toBe(false);
+  });
+
+  it("mantém o temporizador em servidor Node de processo fixo", () => {
+    expect(
+      shouldStartGoogleSyncWorker({
+        NODE_ENV: "production",
+        NEXT_RUNTIME: "nodejs",
+        NEXT_PHASE: "phase-production-server",
+      })
+    ).toBe(true);
   });
 });

@@ -8,7 +8,7 @@ O banco é **um só: PostgreSQL no Supabase (região São Paulo, `sa-east-1`)**.
 |---|---|
 | Projeto Supabase em **São Paulo** ⏳ | a região não muda depois de criada. Use **um segundo projeto** para desenvolvimento: `npm run dev` e o seed gravam de verdade no banco do `.env` |
 | Hospedagem do app **na mesma região** (São Paulo) ⏳ | app e banco longe um do outro deixam cada reserva lenta (cada operação faz várias idas ao banco) |
-| Servidor Node ≥ 20.9 com HTTPS e domínio ⏳ | definir `NEXTAUTH_URL=https://...` (liga HSTS e `upgrade-insecure-requests`) |
+| Node.js **24.x** com HTTPS e domínio ⏳ | a versão está fixada em `package.json`; definir `NEXTAUTH_URL=https://...` (liga HSTS e `upgrade-insecure-requests`) |
 | Strings de conexão (Supabase > **Connect**) ⏳ | `DATABASE_URL` = *Transaction pooler* (6543, `?pgbouncer=true`); `DIRECT_URL` = *Session pooler* ou *Direct* (5432) |
 | `pg_dump` e `pg_restore` na máquina de backup ⏳ | versão igual ou maior que a do Postgres do Supabase; defina `PG_BIN_DIR` se não estiverem no PATH |
 | Segredos novos de produção ⏳ | `NEXTAUTH_SECRET`, `TOKEN_ENCRYPTION_KEY` (guarde uma cópia: sem ela os tokens do Google ficam ilegíveis), senha forte da administradora |
@@ -17,7 +17,8 @@ O banco é **um só: PostgreSQL no Supabase (região São Paulo, `sa-east-1`)**.
 | Fotos dos serviços (Supabase Storage) ⏳ | defina `SUPABASE_URL` e `SUPABASE_SERVICE_ROLE_KEY` **só no servidor** (nunca `NEXT_PUBLIC_*`), rode `npm run db:deploy` (migração `20261119000000_service_images`) e `npm run storage:setup` (cria o bucket público `service-images`). Sem isso o painel avisa e o site usa os placeholders. Veja [fotos-servicos.md](fotos-servicos.md) |
 | Logo e fotos ⏳ | a logo oficial já está em `public/brand/logo.svg`. As fotos são placeholders: troque-as seguindo [imagens.md](imagens.md) (`npm run images:optimize`) |
 
-O app **não** usa as chaves `anon` nem `service_role` do Supabase: só a conexão Postgres.
+O app não usa a chave `anon` do Supabase. A chave `service_role` é opcional e usada **somente no servidor** para
+gerenciar as fotos dos serviços no Storage; o restante da aplicação acessa os dados pela conexão PostgreSQL.
 
 ## 1. Antes de publicar (ensaio) ✅
 
@@ -44,9 +45,29 @@ npm run test:e2e    # testes de tela (Edge), também com PostgreSQL embutido pr�
    E em **Advisors > Security** não deve haver aviso de "RLS disabled".
 4. **Criar a administradora e os dados iniciais**: `npm run db:seed` (só cria; nunca promove nem altera conta existente). Depois **apague `ADMIN_PASSWORD` do `.env`**.
 5. **Verificações**: `npm run db:check-overlaps` ("Nenhum problema"); entrar como administradora e como cliente de teste; tentar reservar o mesmo horário em duas abas ao mesmo tempo (uma deve recusar com mensagem clara).
-6. **Subir a aplicação**: `npm run build && npm start` (ou o deploy da hospedagem). O cliente do Prisma é gerado no `npm ci`/`npm install` (postinstall do `@prisma/client`); se a hospedagem pular essa etapa, rode `npx prisma generate` antes do build.
+6. **Subir a aplicação**: `npm run build && npm start` (ou o deploy da hospedagem). O script `postinstall` do projeto
+   executa `prisma generate`, inclusive em instalações limpas e no cache de dependências da Vercel.
 7. **Ligar o backup diário** (seção 4) e fazer o primeiro backup manual.
 8. **Google Agenda** (se for usar): criar credenciais OAuth, cadastrar `GOOGLE_REDIRECT_URI` = `https://SEU-DOMINIO/api/google/callback`, conectar pelo painel e rodar o roteiro da seção 5.
+
+### Publicação na Vercel
+
+O repositório inclui `vercel.json` com a região `gru1` (São Paulo), próxima ao Supabase `sa-east-1`. O `package.json`
+fixa Node.js 24.x e gera o Prisma Client no `postinstall`; não altere o Build Command padrão detectado para Next.js.
+
+Antes do primeiro deploy, cadastre em **Project → Settings → Environment Variables**, no ambiente **Production**:
+
+- obrigatórias: `DATABASE_URL`, `DIRECT_URL`, `NEXTAUTH_SECRET`, `NEXTAUTH_URL` e `TOKEN_ENCRYPTION_KEY`;
+- administração inicial: `ADMIN_NAME`, `ADMIN_EMAIL`, `ADMIN_PHONE` e `ADMIN_PASSWORD` apenas até executar o seed;
+- opcionais: credenciais do Google, Resend e Supabase Storage descritas em `.env.example`.
+
+Use `DATABASE_URL` com o Transaction Pooler e `DIRECT_URL` com o Session Pooler/Direct. Marque URLs, senhas, tokens e
+chaves como **Secret**; nunca use prefixo `NEXT_PUBLIC_`. Depois de aplicar as migrations e o seed, remova `ADMIN_PASSWORD`
+da Vercel. Alterações de variáveis só chegam a um deployment novo, portanto faça um redeploy depois de cadastrá-las.
+
+Na Vercel o temporizador interno da fila do Google é desativado automaticamente, pois instâncias serverless não são
+processos permanentes. Se usar Google Agenda, configure `CRON_SECRET` forte e um Vercel Cron (ou agendador externo) para
+`GET /api/cron/google-sync` a cada 5 minutos, enviando `Authorization: Bearer <CRON_SECRET>`.
 
 ### Banco que já era o sistema de manicure (atualização) ⏳
 

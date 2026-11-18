@@ -26,13 +26,13 @@ export const LOGO = { src: "/brand/logo.svg", width: 150, height: 150 } as const
 export const PHOTOS = {
   // Panorâmica (≈2,5:1), carro à direita e garagem escura à esquerda: abertura da home, telas de acesso e "confirmado".
   hero: { src: "/images/hero-carro.webp", width: 1983, height: 793, alt: "Cupê preto molhado em garagem escura com luzes amarelas" },
-  lavagem: { src: "/images/lavagem-detalhada.webp", width: 1200, height: 800, alt: "Mão de luvas pretas lavando o farol de um carro preto com espuma amarela" },
-  higienizacao: { src: "/images/higienizacao-interna.webp", width: 1200, height: 800, alt: "Higienização de banco de carro com extratora" },
-  polimento: { src: "/images/polimento.webp", width: 1200, height: 800, alt: "Polimento da pintura preta com politriz orbital" },
-  molhado: { src: "/images/carro-molhado.webp", width: 1000, height: 1400, alt: "Frente de um carro preto molhado em ambiente premium" },
-  rodas: { src: "/images/detalhe-rodas.webp", width: 1200, height: 800, alt: "Detalhe da roda e da pinça de freio de um carro preto" },
-  pintura: { src: "/images/detalhe-pintura.webp", width: 1200, height: 800, alt: "Reflexo na pintura preta recém-protegida" },
-  interior: { src: "/images/detalhe-interior.webp", width: 1200, height: 800, alt: "Interior em couro preto com costuras amarelas" },
+  lavagem: { src: "/images/lavagem-detalhada.webp", width: 1000, height: 800, alt: "Mão de luvas pretas lavando o farol de um carro preto com espuma amarela" },
+  higienizacao: { src: "/images/higienizacao-interna.webp", width: 1000, height: 800, alt: "Higienização de banco de carro com extratora" },
+  polimento: { src: "/images/polimento-tecnico.webp", width: 1000, height: 800, alt: "Polimento da pintura preta com politriz orbital" },
+  molhado: { src: "/images/hero-carro.webp", width: 1983, height: 793, alt: "Frente de um carro preto molhado em ambiente premium" },
+  rodas: { src: "/images/lavagem-detalhada.webp", width: 1000, height: 800, alt: "Detalhe da roda e da pinça de freio de um carro preto" },
+  pintura: { src: "/images/cristalizacao-de-pintura.webp", width: 1000, height: 800, alt: "Reflexo na pintura preta recém-protegida" },
+  interior: { src: "/images/limpeza-e-hidratacao-de-couro.webp", width: 1000, height: 800, alt: "Interior em couro preto com costuras amarelas" },
 } as const;
 
 export type PhotoKey = keyof typeof PHOTOS;

@@ -7,13 +7,13 @@ import sharp from "sharp";
 
 const TARGETS = {
   "hero-carro": [1983, 793],
-  "lavagem-detalhada": [1200, 800],
-  "higienizacao-interna": [1200, 800],
-  polimento: [1200, 800],
-  "carro-molhado": [1000, 1400],
-  "detalhe-rodas": [1200, 800],
-  "detalhe-pintura": [1200, 800],
-  "detalhe-interior": [1200, 800],
+  "lavagem-detalhada": [1000, 800],
+  "higienizacao-interna": [1000, 800],
+  "polimento-tecnico": [1000, 800],
+  "cristalizacao-de-pintura": [1000, 800],
+  vitrificacao: [1000, 800],
+  "higienizacao-de-ar-condicionado": [1000, 800],
+  "limpeza-e-hidratacao-de-couro": [1000, 800],
 };
 const EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".webp"]);
 
