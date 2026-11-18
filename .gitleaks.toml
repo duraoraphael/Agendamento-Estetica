@@ -1,17 +1,40 @@
 # Detecção de segredos (gitleaks). Usa o conjunto padrão de regras e só ignora o que é comprovadamente de teste.
 # Diferente do modelo genérico da skill, NÃO ignora qualquer texto com "test"/"example": isso esconderia segredos reais.
-title = "Agendamento Manicure — gitleaks"
+title = "Garage Zero Zero — gitleaks"
 
 [extend]
 useDefault = true
 
-[allowlist]
+# 1) Arquivos de configuração de teste que carregam chaves fixas (valem em qualquer regra; nunca valem em produção).
+[[allowlists]]
 description = "Chaves fixas usadas só pelos testes automatizados (nunca valem em produção)"
 paths = [
   '''vitest\.config\.ts''',
   '''vitest\.pg\.config\.ts''',
   '''playwright\.config\.ts''',
   '''tests-pg/pg-env\.ts''',
+  '''tests/pg-env\.ts''',
   '''package-lock\.json''',
   '''\.skills/''',
+]
+
+# 2) Senhas e chaves FICTÍCIAS dentro de código de teste (ex.: "senhaSegura123" no corpo de um cadastro simulado).
+#    A regra genérica ("campo com nome de senha/chave = texto") confunde isso com segredo. A exceção vale SÓ para ela e
+#    SÓ em tests/ e e2e/: as regras específicas (AWS, GitHub, Google, Stripe, JWT, chave privada...) continuam
+#    valendo nesses arquivos, então um token real colado num teste ainda seria pego.
+[[allowlists]]
+description = "Dados fictícios de teste: só a regra genérica, só em tests/ e e2e/"
+targetRules = ["generic-api-key"]
+paths = [
+  '''^tests/''',
+  '''^e2e/''',
+  '''^tests-pg/''',
+]
+
+# 3) Modelo de variáveis de ambiente: só placeholders ("coloque-uma-chave-...").
+[[allowlists]]
+description = "Placeholders do .env.example (sem valores reais; o .env de verdade é ignorado pelo git)"
+targetRules = ["generic-api-key"]
+paths = [
+  '''^\.env\.example$''',
 ]
