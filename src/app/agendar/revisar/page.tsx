@@ -8,7 +8,9 @@ import { LocationInfo } from "@/components/LocationInfo";
 import { getSiteSettings } from "@/lib/site-settings-cache";
 import { horarioUrl, veiculoUrl } from "@/lib/booking-urls";
 import { requireClient } from "@/lib/session";
-import { getVehicleForUser, vehicleLabel } from "@/lib/vehicles";
+import { vehicleLabel } from "@/lib/vehicles";
+import { resolveBookingVehicle } from "@/lib/booking-vehicle";
+import { VEHICLE_TYPE_LABELS, isVehicleType } from "@/lib/pricing";
 import { getNotesDraft } from "@/lib/booking-draft";
 import { maskPlate } from "@/lib/plate";
 import { getServiceInfo } from "@/lib/service-catalog";
@@ -31,14 +33,17 @@ export default async function RevisarAgendamentoPage({
   const [service, site] = await Promise.all([prisma.service.findUnique({ where: { id: serviceId } }), getSiteSettings()]);
   if (!service || !service.active) redirect("/agendar?indisponivel=1");
 
+  // O veículo vem da URL, mas só vale se for DA CLIENTE (e, com a cobrança por tipo ligada, se tiver tipo). Senão volta
+  // para a etapa do veículo. O valor mostrado aqui é o calculado no servidor agora; a reserva o recalcula e confere.
+  const resolved = await resolveBookingVehicle(user.id, vehicleId, service);
+  if (!resolved.ok) redirect(veiculoUrl(serviceId));
+  const { vehicle, price } = resolved;
+
   const startDate = new Date(startAt);
   if (Number.isNaN(startDate.getTime()) || startDate.getTime() < Date.now()) {
-    redirect(horarioUrl(serviceId, { conflito: true }));
+    redirect(horarioUrl(serviceId, { vehicleId: vehicle.id, conflito: true }));
   }
 
-  // O veículo vem da URL, mas só vale se for DA CLIENTE (veículo de outra pessoa = volta para escolher).
-  const vehicle = vehicleId ? await getVehicleForUser(user.id, vehicleId) : null;
-  if (!vehicle) redirect(veiculoUrl(serviceId, startDate.toISOString()));
   const notes = (await getNotesDraft()) ?? "";
   const info = getServiceInfo(service.name);
   const cover = (await getServiceCovers([service])).get(service.id);
@@ -47,12 +52,16 @@ export default async function RevisarAgendamentoPage({
     { icon: <ServiceIcon name={info.icon} className="h-6 w-6" />, label: "Serviço", value: service.name },
     { icon: <CalendarIcon className="h-6 w-6" />, label: "Data e horário", value: `${formatDateBR(startDate)} às ${formatTimeBR(startDate)}` },
     { icon: <ClockIcon className="h-6 w-6" />, label: "Duração", value: `${service.durationMinutes} min` },
-    { icon: <CarIcon className="h-6 w-6" />, label: "Veículo", value: `${vehicleLabel(vehicle)} · placa ${maskPlate(vehicle.plate)}` },
+    {
+      icon: <CarIcon className="h-6 w-6" />,
+      label: "Veículo",
+      value: `${vehicleLabel(vehicle)}${isVehicleType(vehicle.vehicleType) ? ` (${VEHICLE_TYPE_LABELS[vehicle.vehicleType]})` : ""} · placa ${maskPlate(vehicle.plate)}`,
+    },
   ];
 
   return (
     <Page width="lg">
-      <Stepper current={4} serviceId={service.id} startAt={startDate.toISOString()} />
+      <Stepper current={4} serviceId={service.id} vehicleId={vehicle.id} />
       <div className="mt-8">
         <PageHeader title="Revise seu" accent="agendamento" subtitle="Etapa 4 de 4 — confira os dados abaixo e confirme." />
       </div>
@@ -79,7 +88,7 @@ export default async function RevisarAgendamentoPage({
           )}
           <div className="flex items-baseline justify-between gap-4 py-5">
             <dt className="font-semibold text-fg">Valor</dt>
-            <dd className="font-display text-3xl font-extrabold text-brand">{formatCents(service.priceCents)}</dd>
+            <dd className="font-display text-3xl font-extrabold text-brand">{formatCents(price.cents)}</dd>
           </div>
         </dl>
       </section>
@@ -87,7 +96,8 @@ export default async function RevisarAgendamentoPage({
       <LocationInfo site={site} className="mt-4" />
 
       <p className="mt-4 text-sm text-fg-muted">{cancelPolicyText(getBookingPolicy().clientCancelMinHours)}</p>
-      <ConfirmBookingForm serviceId={service.id} startAtIso={startDate.toISOString()} vehicleId={vehicle.id} notes={notes} />
+      {/* `key` com o valor: depois de "Rever o agendamento" o formulário recomeça limpo (sem o aviso do valor antigo). */}
+      <ConfirmBookingForm key={price.cents} serviceId={service.id} startAtIso={startDate.toISOString()} vehicleId={vehicle.id} notes={notes} expectedPriceCents={price.cents} />
     </Page>
   );
 }

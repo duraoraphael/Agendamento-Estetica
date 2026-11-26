@@ -1,7 +1,9 @@
 import { prisma } from "@/lib/db";
 import { getServiceCovers } from "@/lib/service-images";
 import { ServiceImageView } from "@/components/ServiceImageView";
-import { formatCents } from "@/lib/format";
+import { loadPriceByTypeEnabled, loadPriceTables } from "@/lib/pricing-data";
+import { priceLabel } from "@/lib/pricing";
+import { ServicePrice } from "@/components/ServicePrice";
 import { EmptyState, Notice, Page, PageHeader, Stepper } from "@/components/ui";
 import { ServiceIcon, ClockIcon } from "@/components/icons";
 import { requireClient } from "@/lib/session";
@@ -23,6 +25,7 @@ export default async function EscolherServicoPage({
   const atLimit = (await countClientActiveFuture(user.id)) >= maxActiveFutureBookings;
   const services = await prisma.service.findMany({ where: { active: true }, orderBy: { name: "asc" } });
   const covers = await getServiceCovers(services);
+  const [priceByType, priceTables] = await Promise.all([loadPriceByTypeEnabled(), loadPriceTables(services.map((s) => s.id))]);
 
   return (
     <Page width="lg">
@@ -47,8 +50,8 @@ export default async function EscolherServicoPage({
         {services.length === 0 ? (
           <EmptyState title="Nenhum serviço disponível agora">Não há serviços abertos para agendamento no momento. Tente novamente mais tarde.</EmptyState>
         ) : (
-          // Formulário GET nativo: funciona sem JavaScript e leva o serviço escolhido para a etapa de data e horário.
-          <form action="/agendar/horario" method="get">
+          // Formulário GET nativo: funciona sem JavaScript e leva o serviço escolhido para a etapa do veículo.
+          <form action="/agendar/veiculo" method="get">
             <fieldset>
               <legend className="sr-only">Serviços disponíveis</legend>
               <ul className="space-y-3">
@@ -78,7 +81,10 @@ export default async function EscolherServicoPage({
                               <span className="inline-flex items-center gap-1.5 text-fg-muted">
                                 <ClockIcon className="h-4 w-4" /> {service.durationMinutes} min
                               </span>
-                              <span className="font-display text-xl font-bold text-brand">{formatCents(service.priceCents)}</span>
+                              <ServicePrice
+                                label={priceLabel({ enabled: priceByType, defaultCents: service.priceCents, table: priceTables.get(service.id) ?? {} })}
+                                className="font-display text-xl font-bold text-brand !text-left"
+                              />
                             </span>
                           </span>
                           <span aria-hidden="true" className="mt-1 flex h-6 w-6 flex-none items-center justify-center rounded-full border-2 border-brand/70">

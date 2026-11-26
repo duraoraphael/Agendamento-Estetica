@@ -251,13 +251,37 @@ export async function getFreeBusyIntervals(rangeStart: Date, rangeEnd: Date, db:
     if (!info || (info.errors && info.errors.length > 0)) {
       throw new Error("Resposta do FreeBusy sem dados da agenda.");
     }
+    // Voltou a responder: se a conta estava marcada como "autorização expirada", o aviso do painel some.
+    if (account.lastSyncError === GOOGLE_AUTH_EXPIRED_MESSAGE) await recordAuthProblem(account.id, null);
     return (info.busy ?? [])
       .filter((b) => b.start && b.end)
       .map((b) => ({ start: new Date(b.start as string), end: new Date(b.end as string) }));
   } catch (err) {
-    console.error("Falha ao consultar FreeBusy do Google Agenda:", safeErrorSummary(err));
+    const summary = safeErrorSummary(err);
+    console.error("Falha ao consultar FreeBusy do Google Agenda:", summary);
+    // invalid_grant = o Google não aceita mais a autorização guardada; tentar de novo não resolve, só reconectar.
+    if (summary.includes("invalid_grant")) await recordAuthProblem(account.id, GOOGLE_AUTH_EXPIRED_MESSAGE);
     throw new CalendarUnavailableError();
   }
+}
+
+/** Aviso para a administradora quando a autorização do Google deixou de valer (as clientes não conseguem agendar). */
+export const GOOGLE_AUTH_EXPIRED_MESSAGE =
+  "A autorização do Google Agenda expirou ou foi revogada. Desconecte e conecte de novo: enquanto isso, as clientes não conseguem agendar.";
+
+/** Grava (ou limpa) o problema de autorização. Nunca lança: o aviso não pode trocar o erro que a cliente recebe. */
+async function recordAuthProblem(accountId: string, message: string | null) {
+  try {
+    await prisma.googleCalendarAccount.updateMany({ where: { id: accountId }, data: { lastSyncError: message } });
+  } catch (err) {
+    console.error("Falha ao registrar o estado da autorização do Google Agenda:", persistenceErrorSummary(err));
+  }
+}
+
+/** A mensagem de autorização expirada, se a conta conectada estiver nesse estado; senão, nulo. */
+export async function getGoogleAuthProblem(db: Db = prisma): Promise<string | null> {
+  const row = await db.googleCalendarAccount.findFirst({ where: { lastSyncError: GOOGLE_AUTH_EXPIRED_MESSAGE }, select: { id: true } });
+  return row ? GOOGLE_AUTH_EXPIRED_MESSAGE : null;
 }
 
 /**

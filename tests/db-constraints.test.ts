@@ -179,3 +179,76 @@ describe("PostgreSQL: RLS ligado em todas as tabelas (Supabase expõe o schema p
     expect((await prisma.user.findUniqueOrThrow({ where: { id: c.id } })).id).toBe(c.id);
   });
 });
+
+describe("PostgreSQL: tipo de veículo e preço por categoria", () => {
+  let clientId: string;
+  let serviceId: string;
+  let k = 0;
+
+  beforeEach(async () => {
+    await resetDb();
+    clientId = (await createClient()).id;
+    serviceId = (await createService()).id;
+  });
+
+  /** INSERT direto (sem passar pela aplicação): o CHECK do banco é a segunda barreira depois do Zod. */
+  async function rawVehicle(vehicleType: string | null, plate: string) {
+    k += 1;
+    await prisma.$executeRaw`
+      INSERT INTO "Vehicle" ("id","userId","brand","model","plate","vehicleType","createdAt","updatedAt")
+      VALUES (${"v" + Date.now() + k}, ${clientId}, 'Fiat', 'Argo', ${plate}, ${vehicleType}, NOW(), NOW())`;
+  }
+  async function rawServicePrice(vehicleType: string, priceCents: number, svc = serviceId) {
+    k += 1;
+    await prisma.$executeRaw`
+      INSERT INTO "ServicePrice" ("id","serviceId","vehicleType","priceCents") VALUES (${"p" + Date.now() + k}, ${svc}, ${vehicleType}, ${priceCents})`;
+  }
+
+  it("Vehicle.vehicleType aceita nulo (veículo antigo) e as cinco categorias, e recusa qualquer outro valor", async () => {
+    await rawVehicle(null, "AAA1A11");
+    await rawVehicle("SUV", "AAA1A12");
+    await expect(rawVehicle("BARCO", "AAA1A13")).rejects.toThrow(/Vehicle_valid_type/);
+    await expect(rawVehicle("suv", "AAA1A14")).rejects.toThrow(/Vehicle_valid_type/);
+    expect(await prisma.vehicle.count()).toBe(2);
+  });
+
+  it("ServicePrice recusa categoria inválida e preço fora de 0..500000 (mesmo teto do preço do serviço), e aceita zero e o teto", async () => {
+    await rawServicePrice("SUV", 9000);
+    await rawServicePrice("HATCH", 0);
+    await rawServicePrice("PICAPE", 500_000);
+    await expect(rawServicePrice("BARCO", 9000)).rejects.toThrow(/ServicePrice_valid_type/);
+    await expect(rawServicePrice("SEDA", -1)).rejects.toThrow(/ServicePrice_valid_price/);
+    await expect(rawServicePrice("SEDA", 500_001)).rejects.toThrow(/ServicePrice_valid_price/);
+    expect(await prisma.servicePrice.count()).toBe(3);
+  });
+
+  it("ServicePrice: uma linha por (serviço, categoria)", async () => {
+    await rawServicePrice("SUV", 9000);
+    await expect(rawServicePrice("SUV", 9500)).rejects.toThrow(/ServicePrice_serviceId_vehicleType_key|23505|unique/i);
+  });
+
+  it("apagar o serviço apaga os preços por categoria dele (e só dele)", async () => {
+    const other = await createService({ name: "Outro serviço" });
+    await rawServicePrice("SUV", 9000);
+    await rawServicePrice("SUV", 7000, other.id);
+    await prisma.service.delete({ where: { id: serviceId } });
+    expect(await prisma.servicePrice.findMany({ select: { serviceId: true } })).toEqual([{ serviceId: other.id }]);
+  });
+
+  it("Appointment.vehicleTypeSnapshot aceita nulo e categoria, e recusa outro valor", async () => {
+    const insert = (snapshot: string | null) => {
+      k += 1;
+      return prisma.$executeRaw`
+        INSERT INTO "Appointment" ("id","clientId","serviceId","serviceName","priceCents","durationMinutes","vehicleTypeSnapshot","startAt","endAt","status","googleSyncStatus","createdAt","updatedAt")
+        VALUES (${"a" + Date.now() + k}, ${clientId}, ${serviceId}, 'x', 1000, 60, ${snapshot}, ${new Date(Date.UTC(2027, 0, 15 + k, 10)).toISOString()}::timestamp(3), ${new Date(Date.UTC(2027, 0, 15 + k, 11)).toISOString()}::timestamp(3), 'CONFIRMADA', 'NAO_CONECTADO', NOW(), NOW())`;
+    };
+    await insert(null);
+    await insert("PICAPE");
+    await expect(insert("BARCO")).rejects.toThrow(/Appointment_valid_vehicle_type/);
+  });
+
+  it("SiteSettings.priceByVehicleType começa desligada", async () => {
+    const row = await prisma.siteSettings.create({ data: { id: 1 } });
+    expect(row.priceByVehicleType).toBe(false);
+  });
+});

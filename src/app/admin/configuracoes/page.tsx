@@ -3,11 +3,14 @@ import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 import { loadSiteSettings } from "@/lib/site-settings";
 import { SiteSettingsForm } from "@/components/SiteSettingsForm";
+import { PriceModeForm } from "@/components/PriceModeForm";
+import { loadPriceByTypeEnabled } from "@/lib/pricing-data";
 
 export default async function ConfiguracoesPage() {
   await requireAdmin();
-  const [settings, logo] = await Promise.all([
+  const [settings, priceByType, logo] = await Promise.all([
     loadSiteSettings(),
+    loadPriceByTypeEnabled(),
     // Só os metadados: os bytes da imagem não saem do banco para montar esta tela.
     prisma.siteLogo.findUnique({ where: { id: 1 }, select: { contentType: true, width: true, height: true } }),
   ]);
@@ -26,7 +29,8 @@ export default async function ConfiguracoesPage() {
           </Link>
         </p>
       </div>
-      <div className="max-w-2xl">
+      <div className="max-w-2xl space-y-6">
+        <PriceModeForm enabled={priceByType} />
         <SiteSettingsForm
           initial={{
             siteName: settings.siteName,

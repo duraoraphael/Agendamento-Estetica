@@ -7,11 +7,14 @@ import { DeleteServiceButton } from "@/components/DeleteServiceButton";
 import { getServiceInfo } from "@/lib/service-catalog";
 import { PHOTOS } from "@/lib/site";
 import { ServiceImageView } from "@/components/ServiceImageView";
+import { loadPriceByTypeEnabled, loadPriceTables } from "@/lib/pricing-data";
+import { priceLabel } from "@/lib/pricing";
 
 export default async function ServicosPage() {
   const services = await prisma.service.findMany({ orderBy: { createdAt: "asc" } });
   const covers = await getServiceCovers(services);
   const photoCounts = await countServicePhotos(services.map((s) => s.id));
+  const [priceByType, priceTables] = await Promise.all([loadPriceByTypeEnabled(), loadPriceTables(services.map((s) => s.id))]);
   // Reservas por serviço (qualquer situação): quem tem histórico não pode ser excluído, só desativado.
   const appointmentCounts = new Map(
     (await prisma.appointment.groupBy({ by: ["serviceId"], _count: { _all: true } })).map((r) => [r.serviceId, r._count._all]),
@@ -25,6 +28,17 @@ export default async function ServicosPage() {
           + Novo serviço
         </Link>
       </div>
+
+      {!priceByType && [...priceTables.values()].some((t) => Object.keys(t).length > 0) && (
+        <div className="notice-warning" role="status">
+          <p>
+            Há preços por tipo de veículo salvos, mas a cobrança por tipo de veículo está desligada: as clientes estão pagando o preço padrão.{" "}
+            <Link href="/admin/configuracoes" className="font-semibold underline underline-offset-4">
+              Ligar em Configurações
+            </Link>
+          </p>
+        </div>
+      )}
 
       {services.length === 0 ? (
         <div className="card text-center text-fg-muted">
@@ -45,7 +59,14 @@ export default async function ServicosPage() {
                 <div className="min-w-0">
                   <p className="font-semibold text-fg">{service.name}</p>
                   <p className="text-sm text-fg-muted">
-                    {formatCents(service.priceCents)} · {service.durationMinutes} min
+                    {formatCents(service.priceCents)}
+                    {(() => {
+                      // Com a chave ligada e preços por categoria diferentes, mostra o menor valor aplicável.
+                      const label = priceLabel({ enabled: priceByType, defaultCents: service.priceCents, table: priceTables.get(service.id) ?? {} });
+                      return label.prefix ? ` · por tipo: ${label.prefix.toLowerCase()} ${label.text}` : "";
+                    })()}
+                    {" · "}
+                    {service.durationMinutes} min
                   </p>
                 </div>
               </div>

@@ -34,15 +34,26 @@ export async function enabledDayKeys(page: Page): Promise<string[]> {
   return page.locator("[data-date]:not([disabled])").evaluateAll((els) => els.map((e) => (e as HTMLElement).dataset.date as string));
 }
 
-/** Etapa "Veículo": usa o veículo já marcado ou cadastra um novo na hora; observações são opcionais. */
-export async function completeVehicleStep(page: Page, opts: { plate?: string; notes?: string } = {}) {
+/**
+ * Etapa 2 ("Veículo", antes do horário): usa o veículo já marcado ou cadastra um novo na hora; observações são opcionais.
+ * Termina na etapa 3 (data e horário).
+ */
+export async function completeVehicleStep(page: Page, opts: { plate?: string; notes?: string; type?: string } = {}) {
   await expect(page).toHaveURL(/\/agendar\/veiculo/);
   const brand = page.getByLabel("Marca");
   if (await brand.isVisible()) {
     await brand.fill("Fiat");
     await page.getByLabel("Modelo").fill("Argo");
+    await page.getByLabel("Tipo de veículo").selectOption(opts.type ?? "HATCH");
     await page.getByLabel("Placa").fill(opts.plate ?? "ABC1D23");
   }
   if (opts.notes) await page.getByLabel(/Observações/).fill(opts.notes);
   await page.getByRole("button", { name: "Continuar" }).click();
+  await expect(page).toHaveURL(/\/agendar\/horario/);
+}
+
+/** Abre o agendamento de um serviço pela etapa do veículo (cadastra o veículo se a cliente ainda não tem) e chega ao horário. */
+export async function startBooking(page: Page, serviceId: string, opts: { plate?: string; notes?: string; type?: string } = {}) {
+  await page.goto(`/agendar/veiculo?serviceId=${encodeURIComponent(serviceId)}`);
+  await completeVehicleStep(page, opts);
 }

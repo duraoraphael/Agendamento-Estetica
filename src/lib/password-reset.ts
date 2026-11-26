@@ -65,7 +65,10 @@ export async function issueResetToken(userId: string, now: Date = new Date()): P
  */
 export async function requestPasswordResetFor(email: string): Promise<void> {
   try {
-    const user = await prisma.user.findUnique({ where: { email }, select: { id: true, name: true, email: true } });
+    const user = await prisma.user.findUnique({
+      where: { email, passwordHash: { not: null } },
+      select: { id: true, name: true, email: true },
+    });
     if (!user) return;
     const token = await issueResetToken(user.id);
     const site = await loadSiteSettings(prisma).catch(() => null);
@@ -139,7 +142,7 @@ export async function isResetTokenUsable(token: string, now: Date = new Date()):
 export async function changeOwnPassword(userId: string, currentPassword: string, newPassword: string): Promise<{ ok: true } | { ok: false; reason: "wrong_password" }> {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { passwordHash: true } });
   const valid = await bcrypt.compare(currentPassword, user?.passwordHash ?? "$2a$10$2uGn94DQRnHIr2hfXCgB4OocfK8GEIg9FgWdcL.iC6Y2R.Wl.irT2");
-  if (!user || !valid) return { ok: false, reason: "wrong_password" };
+  if (!user?.passwordHash || !valid) return { ok: false, reason: "wrong_password" };
   const passwordHash = await bcrypt.hash(newPassword, 10);
   await prisma.$transaction(async (tx) => {
     await tx.user.update({ where: { id: userId }, data: { passwordHash, sessionVersion: { increment: 1 } } });

@@ -5,7 +5,7 @@ import bcrypt from "bcryptjs";
 import { expect, test, type Browser, type Page, type TestInfo } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { E2E_DATABASE_URL, E2E_ENV, E2E_PORT } from "../playwright.config";
-import { pickDay } from "./helpers";
+import { completeVehicleStep, pickDay } from "./helpers";
 
 /**
  * Telas novas da Garage Zero Zero: serviços, agendamento rápido, conta e veículos, reagendamento, recuperação de senha e
@@ -135,6 +135,8 @@ async function seedAppointment(clientId: string, iso: string, serviceName: strin
 async function basicA11y(page: Page, label: string) {
   const r = await page.evaluate(() => {
     const visible = (el: Element) => {
+      // Conteúdo de um <details> fechado (ex.: links de GPS do rodapé) tem caixa, mas não está na tela.
+      if (!el.checkVisibility()) return false;
       const s = getComputedStyle(el as HTMLElement);
       const b = (el as HTMLElement).getBoundingClientRect();
       return s.visibility !== "hidden" && s.display !== "none" && b.width > 0 && b.height > 0;
@@ -164,7 +166,7 @@ async function basicA11y(page: Page, label: string) {
 }
 
 // ---------- público ----------
-test("público: /servicos completa e agendamento rápido que preserva a intenção até o login", async ({ browser, page }, info) => {
+test("público: /servicos completa e o serviço escolhido é preservado até o login", async ({ browser, page }, info) => {
   watch(page);
   await page.goto("/servicos");
   await expect(page.getByRole("heading", { level: 1 })).toContainText(/Nossos\s+serviços/i);
@@ -177,32 +179,23 @@ test("público: /servicos completa e agendamento rápido que preserva a intenç�
 
   // CTA de um serviço leva ao login e guarda o destino.
   const lav = await service("Lavagem detalhada");
-  await page.getByRole("link", { name: "Agendar Lavagem detalhada" }).click();
+  // O botão "Agendar" de cada serviço é descrito pelo título do cartão (aria-describedby) e leva à etapa do veículo.
+  await page.locator(`a[aria-describedby="servico-${lav.id}"]`).click();
   await expect(page).toHaveURL(/\/login\?callbackUrl=/);
-  expect(decodeURIComponent(new URL(page.url()).searchParams.get("callbackUrl")!)).toBe(`/agendar/horario?serviceId=${lav.id}`);
+  expect(decodeURIComponent(new URL(page.url()).searchParams.get("callbackUrl")!)).toBe(`/agendar/veiculo?serviceId=${lav.id}`);
 
-  // Agendamento rápido na home: serviço + data + horário preferido viram o destino do login.
+  // A intenção (serviço escolhido) sobrevive ao login.
   const c = await newClient("rapido", info);
-  const day = spKey(new Date(slotIso(24, 10)));
-  await page.goto("/");
-  await page.getByLabel("Serviço", { exact: true }).selectOption({ label: "Higienização de ar-condicionado" });
-  await page.getByLabel("Data", { exact: true }).fill(day);
-  await page.getByLabel("Horário preferido").selectOption("10:00");
-  await page.getByRole("button", { name: "Continuar" }).click();
-  await expect(page).toHaveURL(/\/login\?callbackUrl=/);
   const callback = decodeURIComponent(new URL(page.url()).searchParams.get("callbackUrl")!);
-  expect(callback).toContain("/agendar/horario?");
-  expect(callback).toContain(`data=${day}`);
-  expect(callback).toContain("hora=10:00");
   await check(page, info, "41-login-com-intencao");
 
-  // Depois de entrar volta para a etapa de horário, já no dia e no horário pedidos.
+  // Depois de entrar volta para a etapa do veículo (sem veículo ainda: cadastra ali) e, em seguida, para o horário.
   await page.getByLabel("E-mail", { exact: true }).fill(c.email);
   await page.getByLabel("Senha", { exact: true }).fill(PASSWORD);
   await page.getByRole("button", { name: "Entrar" }).click();
-  await expect(page).toHaveURL(/\/agendar\/horario\?/);
-  await expect(page.locator(`[data-date="${day}"]`)).toHaveAttribute("aria-pressed", "true");
-  await expect(page.getByText("Horário escolhido:")).toContainText("10:00");
+  await expect(page).toHaveURL(/\/agendar\/veiculo\?/);
+  await expect(page.getByText("Cadastre seu veículo para ver o valor e escolher o horário.")).toBeVisible();
+  await completeVehicleStep(page);
 
   // "Criar conta" a partir do login leva a intenção junto.
   const visitor = await browser.newContext({ baseURL: `http://localhost:${E2E_PORT}`, locale: "pt-BR" });
@@ -256,6 +249,7 @@ test("conta: editar dados, CRUD de veículos pela interface, limite e IDOR (veí
   await page.goto("/minha-conta/veiculos/novo");
   await page.getByLabel("Marca").fill("Jeep");
   await page.getByLabel("Modelo").fill("Compass");
+  await page.getByLabel("Tipo de veículo").selectOption("SUV");
   await page.getByLabel("Placa").fill("ABC-12");
   await page.getByRole("button", { name: "Cadastrar veículo" }).click();
   await expect(page.getByText(/placa válida/)).toBeVisible();
@@ -270,12 +264,14 @@ test("conta: editar dados, CRUD de veículos pela interface, limite e IDOR (veí
   await expect(page.getByText(/ABC-1234/)).toBeVisible(); // formato antigo exibido com hífen
   await check(page, info, "44-veiculos");
   const mine = await prisma.vehicle.findFirstOrThrow({ where: { userId: a.id } });
-  expect(mine).toMatchObject({ plate: "ABC1234", year: 2022, color: "Preto" }); // gravada normalizada
+  expect(mine).toMatchObject({ plate: "ABC1234", year: 2022, color: "Preto", vehicleType: "SUV" }); // gravada normalizada
+  await expect(page.getByText(/SUV · ABC-1234/)).toBeVisible(); // tipo exibido na lista
 
   // Placa duplicada na mesma conta.
   await page.goto("/minha-conta/veiculos/novo");
   await page.getByLabel("Marca").fill("Fiat");
   await page.getByLabel("Modelo").fill("Argo");
+  await page.getByLabel("Tipo de veículo").selectOption("HATCH");
   await page.getByLabel("Placa").fill("ABC1234");
   await page.getByRole("button", { name: "Cadastrar veículo" }).click();
   await expect(page.getByText(/já cadastrou um veículo com essa placa/)).toBeVisible();
@@ -466,8 +462,8 @@ test("larguras 390, 768, 1024 e 1440: sem rolagem horizontal, um h1, imagens com
   const publicPages = ["/", "/servicos", "/login", "/cadastro", "/recuperar-senha", "/redefinir-senha?token=x"];
   const clientPages = [
     "/agendar",
-    `/agendar/horario?serviceId=${svc.id}`,
-    `/agendar/veiculo?serviceId=${svc.id}&startAt=${encodeURIComponent(startAt)}`,
+    `/agendar/veiculo?serviceId=${svc.id}`,
+    `/agendar/horario?serviceId=${svc.id}&vehicleId=${veh.id}`,
     `/agendar/revisar?serviceId=${svc.id}&startAt=${encodeURIComponent(startAt)}&vehicleId=${veh.id}`,
     "/meus-agendamentos",
     "/minha-conta",

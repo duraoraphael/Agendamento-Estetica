@@ -5,7 +5,7 @@ import bcrypt from "bcryptjs";
 import { expect, test, type Browser, type Page, type TestInfo } from "@playwright/test";
 import { PrismaClient } from "@prisma/client";
 import { E2E_DATABASE_URL, E2E_ENV, E2E_PORT } from "../playwright.config";
-import { completeVehicleStep, pickDay, showDay } from "./helpers";
+import { pickDay, showDay, startBooking } from "./helpers";
 
 /**
  * Verificação de tela dos recursos novos: Configurações (nome, logo, contatos), horários livres (sobreposição
@@ -118,7 +118,8 @@ const slot = (page: Page, hhmm: string) => page.getByRole("button", { name: hhmm
 
 async function openPicker(page: Page, serviceName: string, iso: string) {
   const svc = await prisma.service.findFirstOrThrow({ where: { name: serviceName } });
-  await page.goto(`/agendar/horario?serviceId=${svc.id}`);
+  // O veículo vem antes do horário: a primeira vez cadastra, nas seguintes reaproveita o da cliente.
+  await startBooking(page, svc.id);
   await pickDay(page, spKey(new Date(iso)));
   return svc;
 }
@@ -238,9 +239,28 @@ test("administradora: edita nome, logo e contatos; prévia, erros, persistência
   await vp.goto("/");
   await expect(vp.getByText("Brilho & cuidado").first()).toBeVisible();
   await expect(vp.getByText("Atendimento com hora marcada e muito carinho.")).toBeVisible();
-  await expect(vp.getByRole("link", { name: /WhatsApp: \(11\) 91234-5678/ })).toHaveAttribute("href", "https://wa.me/5511912345678");
-  await expect(vp.getByRole("link", { name: /instagram/i }).first()).toHaveAttribute("href", "https://www.instagram.com/studio.e2e");
-  await expect(vp.locator("footer, body").first()).toContainText(state.address);
+  const footer = vp.getByRole("contentinfo");
+  const contacts = [
+    { label: "Telefone: (11) 3000-1234", href: "tel:1130001234" },
+    { label: "WhatsApp: (11) 91234-5678", href: "https://wa.me/5511912345678" },
+    { label: "Instagram", href: "https://www.instagram.com/studio.e2e" },
+  ];
+  for (const { label, href } of contacts) {
+    const link = footer.getByRole("link", { name: label, exact: true });
+    await expect(link).toHaveAttribute("href", href);
+    await expect(link.locator("svg")).toBeVisible();
+  }
+
+  const gps = footer.getByRole("list", { name: "Aplicativos de GPS" });
+  await expect(gps).toBeHidden();
+  await footer.getByText(state.address, { exact: true }).click();
+  await expect(gps).toBeVisible();
+  const destination = encodeURIComponent(state.address);
+  await expect(gps.getByRole("link", { name: "Google Maps" })).toHaveAttribute("href", `https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving`);
+  await expect(gps.getByRole("link", { name: "Waze" })).toHaveAttribute("href", `https://waze.com/ul?q=${destination}&navigate=yes`);
+  await expect(gps.getByRole("link", { name: "Apple Maps" })).toHaveAttribute("href", `https://maps.apple.com/directions?destination=${destination}&mode=driving`);
+  await footer.locator("summary").press("Enter");
+  await expect(gps).toBeHidden();
   const logoRes = await vp.request.get("/api/logo");
   expect(logoRes.status()).toBe(200);
   expect(logoRes.headers()["content-type"]).toBe("image/png");
@@ -278,9 +298,7 @@ test("cliente: lista só horários livres (sobreposição parcial), confirma e s
   await check(page, info, "24-horarios-so-livres");
 
   // Troca de serviço: 120 min não cabem às 13h (terminaria às 15h, dentro da reserva).
-  const longSvc = await prisma.service.findFirstOrThrow({ where: { name: "Lavagem detalhada" } });
-  await page.goto(`/agendar/horario?serviceId=${longSvc.id}`);
-  await pickDay(page, spKey(new Date(busyIso)));
+  await openPicker(page, "Lavagem detalhada", busyIso);
   await expect(slot(page, "15:00")).toBeVisible();
   await expect(slot(page, "13:00")).toHaveCount(0);
 
@@ -289,7 +307,6 @@ test("cliente: lista só horários livres (sobreposição parcial), confirma e s
   await slot(page, "15:00").click();
   await expect(page.getByText("Horário escolhido:")).toContainText("15:00");
   await page.getByRole("button", { name: "Continuar" }).click();
-  await completeVehicleStep(page);
   await expect(page).toHaveURL(/\/agendar\/revisar/);
   await expect(page.getByRole("region", { name: "Local do atendimento" })).toContainText(state.address!);
   await page.getByRole("button", { name: "Confirmar agendamento" }).click();
@@ -388,7 +405,6 @@ test("duas clientes disputando o mesmo horário: só uma confirma; a outra vê a
     await openPicker(page, "Higienização de ar-condicionado", iso);
     await slot(page, "16:00").click();
     await page.getByRole("button", { name: "Continuar" }).click();
-    await completeVehicleStep(page);
     await expect(page).toHaveURL(/\/agendar\/revisar/);
   }
 

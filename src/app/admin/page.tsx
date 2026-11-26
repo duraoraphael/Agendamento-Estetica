@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { requireAdmin } from "@/lib/session";
 import { getNewAppointmentsCount } from "@/lib/admin-stats";
+import { getGoogleAuthProblem } from "@/lib/google-calendar";
 import { localDayRangeUtc, formatCents, dateKeyInTz } from "@/lib/format";
 import { AppointmentList, AppointmentRow } from "@/components/AppointmentRow";
 import { EmptyState } from "@/components/ui";
@@ -11,7 +12,8 @@ export default async function AdminHomePage() {
 
   // Consultas independentes em paralelo (antes eram 4 idas ao banco em sequência).
   const { start, end } = localDayRangeUtc();
-  const [today, next, newCount, syncFailures] = await Promise.all([
+  const [googleProblem, today, next, newCount, syncFailures] = await Promise.all([
+    getGoogleAuthProblem(),
     prisma.appointment.findMany({
       where: { startAt: { gte: start, lt: end } },
       include: { client: { select: { name: true, phone: true } } },
@@ -32,6 +34,16 @@ export default async function AdminHomePage() {
 
   return (
     <div className="space-y-8">
+      {googleProblem && (
+        <div className="notice-error" role="alert">
+          <p>
+            {googleProblem}{" "}
+            <Link href="/admin/configuracoes/google" className="font-semibold underline underline-offset-4">
+              Reconectar o Google Agenda
+            </Link>
+          </p>
+        </div>
+      )}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="eyebrow">Hoje · {todayKey.split("-").reverse().join("/")}</p>

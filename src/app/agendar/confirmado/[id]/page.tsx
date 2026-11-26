@@ -9,7 +9,7 @@ import { formatDateBR, formatTimeBR } from "@/lib/format";
 import { formatPlate } from "@/lib/plate";
 import { PHOTOS } from "@/lib/site";
 import { AddToGoogleCalendar } from "@/components/AddToGoogleCalendar";
-import { CalendarIcon, CheckIcon, CarIcon, ClockIcon, WrenchIcon } from "@/components/icons";
+import { CalendarIcon, CheckIcon, CarIcon, ClockIcon, WrenchIcon, WhatsAppIcon } from "@/components/icons";
 import { idSchema } from "@/lib/validation";
 
 export const metadata = { title: "Agendamento confirmado" };
@@ -76,6 +76,7 @@ export default async function AgendamentoConfirmadoPage({ params }: { params: Pr
           </Link>
           {wa && (
             <a href={`${wa}?text=${encodeURIComponent(waText)}`} target="_blank" rel="noopener noreferrer" className="btn-secondary w-full sm:w-auto">
+              <WhatsAppIcon className="h-5 w-5 flex-none text-[#25d366]" />
               Falar pelo WhatsApp
               <span className="sr-only"> (abre em uma nova aba)</span>
             </a>

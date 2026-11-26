@@ -9,18 +9,51 @@ import { recordAuditTx } from "@/lib/audit-log";
 import { hitLimit, limitKey } from "@/lib/rate-limit";
 import { RATE_LIMITS } from "@/lib/constants";
 import { deleteService, ServiceDeleteError } from "@/lib/service-images";
+import { parseReaisToCents, VEHICLE_TYPES, type PriceTable } from "@/lib/pricing";
+import { saveServicePrices } from "@/lib/pricing-data";
+import type { Prisma } from "@prisma/client";
 
 export type ServiceFormState = { errors: Record<string, string>; createdId?: string } | null;
+
+/** Preços por categoria do formulário (`price_HATCH` ... `price_VAN`, em reais). Campo vazio = sem preço específico. */
+function parseTypePrices(formData: FormData): { table: PriceTable; errors: Record<string, string> } {
+  const table: PriceTable = {};
+  const errors: Record<string, string> = {};
+  for (const type of VEHICLE_TYPES) {
+    const raw = formData.get(`price_${type}`)?.toString().trim() ?? "";
+    if (raw === "") continue;
+    const cents = parseReaisToCents(raw);
+    if (cents === null) errors[`price_${type}`] = "Informe um preço válido, ex: 90,00.";
+    else table[type] = cents;
+  }
+  return { table, errors };
+}
+
+/** Grava os preços por categoria dentro da transação do serviço e registra (sem valores) quantas categorias ficaram. */
+async function savePricesAndAudit(tx: Prisma.TransactionClient, adminId: string, serviceId: string, table: PriceTable) {
+  const before = await tx.servicePrice.count({ where: { serviceId } });
+  await saveServicePrices(tx, serviceId, table);
+  const count = Object.keys(table).length;
+  if (count === 0 && before === 0) return;
+  await recordAuditTx(tx, {
+    action: "service_prices_updated",
+    actorId: adminId,
+    targetType: "Service",
+    targetId: serviceId,
+    detail: `${count} ${count === 1 ? "categoria" : "categorias"}`,
+  });
+}
 
 export async function upsertServiceAction(_prevState: ServiceFormState, formData: FormData): Promise<ServiceFormState> {
   const admin = await requireAdmin();
 
   const id = formData.get("id")?.toString();
+  const { table: typePrices, errors: typePriceErrors } = parseTypePrices(formData);
   // Valor digitado em reais (ex: "40,00") é convertido para centavos aqui.
   const priceReais = formData.get("priceReais")?.toString().trim().replace(",", ".") ?? "0";
   const priceNumber = Number(priceReais);
   if (priceReais === "" || !Number.isFinite(priceNumber) || priceNumber < 0) {
-    return { errors: { priceReais: "Informe um preço válido, ex: 40,00." } };
+    return { errors: { priceReais: "Informe um preço válido, ex: 40,00.", ...typePriceErrors } };
   }
   const priceCents = Math.round(priceNumber * 100);
 
@@ -32,8 +65,10 @@ export async function upsertServiceAction(_prevState: ServiceFormState, formData
   });
 
   if (!parsed.success) {
-    return { errors: formatZodError(parsed.error) };
+    return { errors: { ...formatZodError(parsed.error), ...typePriceErrors } };
   }
+  // Preço de categoria inválido: nada é gravado (nem o serviço, nem as outras categorias).
+  if (Object.keys(typePriceErrors).length > 0) return { errors: typePriceErrors };
 
   if (id) {
     if (!idSchema.safeParse(id).success) return { errors: { _form: "Serviço inválido." } };
@@ -43,11 +78,13 @@ export async function upsertServiceAction(_prevState: ServiceFormState, formData
     await prisma.$transaction(async (tx) => {
       await tx.service.update({ where: { id }, data: parsed.data });
       await recordAuditTx(tx, { action: "service_updated", actorId: admin.id, targetType: "Service", targetId: id, detail: parsed.data.name });
+      await savePricesAndAudit(tx, admin.id, id, typePrices);
     });
   } else {
     const createdId = await prisma.$transaction(async (tx) => {
       const created = await tx.service.create({ data: parsed.data });
       await recordAuditTx(tx, { action: "service_created", actorId: admin.id, targetType: "Service", targetId: created.id, detail: created.name });
+      await savePricesAndAudit(tx, admin.id, created.id, typePrices);
       return created.id;
     });
     revalidatePath("/admin/servicos");

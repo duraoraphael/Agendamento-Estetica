@@ -13,7 +13,7 @@ import { getSiteSettings } from "@/lib/site-settings-cache";
 import { whatsappLink } from "@/lib/site-settings";
 import { formatPlate } from "@/lib/plate";
 import { idSchema } from "@/lib/validation";
-import { CalendarIcon, CarIcon, ClockIcon, WrenchIcon } from "@/components/icons";
+import { CalendarIcon, CarIcon, ClockIcon, WrenchIcon, WhatsAppIcon } from "@/components/icons";
 
 export const metadata = { title: "Detalhes do agendamento" };
 
@@ -105,8 +105,9 @@ export default async function DetalheAgendamentoPage({
 
       {wa && (
         <p className="mt-3">
-          <a href={wa} target="_blank" rel="noopener noreferrer" className="link">
-            Falar pelo WhatsApp<span className="sr-only"> (abre em uma nova aba)</span>
+          <a href={wa} target="_blank" rel="noopener noreferrer" className="link inline-flex min-h-[44px] items-center gap-2">
+            <WhatsAppIcon className="h-5 w-5 flex-none text-[#25d366]" />
+            <span>Falar pelo WhatsApp<span className="sr-only"> (abre em uma nova aba)</span></span>
           </a>
         </p>
       )}

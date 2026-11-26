@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { formatCents, formatDateBR, formatTimeBR } from "@/lib/format";
 import { formatPlate } from "@/lib/plate";
+import { vehicleTypeLabel } from "@/lib/pricing";
 import { StatusSelect } from "@/components/StatusSelect";
 import { retrySyncAction } from "@/app/admin/agendamentos/actions";
 import type { AppointmentStatus, GoogleSyncStatus } from "@/lib/types";
@@ -19,6 +20,7 @@ interface AppointmentRowProps {
     vehicleBrandSnapshot?: string | null;
     vehicleModelSnapshot?: string | null;
     vehiclePlateSnapshot?: string | null;
+    vehicleTypeSnapshot?: string | null;
     notes?: string | null;
   };
 }
@@ -77,6 +79,7 @@ export function AppointmentRow({ appointment: a }: AppointmentRowProps) {
         {vehicle ? (
           <>
             <p className="break-words font-medium text-fg">{vehicle}</p>
+            {vehicleTypeLabel(a.vehicleTypeSnapshot) && <p className="text-sm text-fg-muted">{vehicleTypeLabel(a.vehicleTypeSnapshot)}</p>}
             {a.vehiclePlateSnapshot && <p className="text-sm font-bold tracking-wider text-brand">{formatPlate(a.vehiclePlateSnapshot)}</p>}
           </>
         ) : (

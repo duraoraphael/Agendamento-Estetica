@@ -191,20 +191,36 @@ test("arquivos inválidos, limite de 6 fotos e Storage fora do ar", async ({ pag
   await shot(page, info, "fotos-limite-6");
 });
 
-test("vitrine pública: capa e galeria no /servicos, sem rolagem horizontal", async ({ browser }, info) => {
+test("vitrine pública: carrossel passa as fotos sozinho e pelas setas", async ({ browser }, info) => {
   const name = nameFor(info, "A");
   const ctx = await publicContext(browser, info);
   const page = await ctx.newPage();
+  await page.clock.install();
   await page.goto("/servicos");
   const card = page.locator("li", { has: page.getByRole("heading", { name, exact: true }) }).first();
-  await expect(card).toBeVisible();
-  const cover = card.locator("img").first();
+  const carousel = card.getByRole("group", { name: `Fotos de ${name}` });
+  await carousel.scrollIntoViewIfNeeded();
+  const cover = carousel.getByRole("img");
   await expect(cover).toHaveAttribute("src", /_next\/image/);
   await expect(cover).not.toHaveAttribute("data-placeholder", "true");
   await expect.poll(() => cover.evaluate((el) => (el as HTMLImageElement).naturalWidth)).toBeGreaterThan(0);
-  // Galeria: as outras 5 fotos.
-  await expect(card.getByRole("list", { name: `Mais fotos de ${name}` }).locator("img")).toHaveCount(5);
-  await card.scrollIntoViewIfNeeded();
+  await expect(carousel.getByRole("img")).toHaveCount(1);
+  await expect(card.getByRole("link", { name: "Agendar", exact: true })).toHaveAttribute("href", /\/agendar\/veiculo\?serviceId=/);
+
+  const first = await cover.getAttribute("src");
+  await expect(carousel.getByRole("button", { name: "Pausar rotação das fotos" })).toBeVisible();
+  await page.clock.fastForward(5000);
+  await expect(cover).not.toHaveAttribute("src", first!);
+  const second = await cover.getAttribute("src");
+  await carousel.getByRole("button", { name: "Próxima foto" }).click();
+  await expect(cover).not.toHaveAttribute("src", second!);
+  await carousel.getByRole("button", { name: "Foto anterior" }).click();
+  await expect(cover).toHaveAttribute("src", second!);
+
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await expect(carousel.getByRole("button", { name: "Reproduzir fotos automaticamente" })).toBeVisible();
+  await page.clock.fastForward(6000);
+  await expect(cover).toHaveAttribute("src", second!);
   await shot(page, info, "fotos-servicos-publico");
   await ctx.close();
 });
@@ -227,8 +243,11 @@ test("imagem quebrada: o card continua inteiro e mostra o placeholder", async ({
     await pub.goto("/servicos");
     const card = pub.locator("li", { has: pub.getByRole("heading", { name, exact: true }) }).first();
     await expect(card).toBeVisible();
+    // A foto é carregada sob demanda: com muitos serviços o cartão fica fora da tela e o erro só acontece ao rolar até ele.
+    await card.scrollIntoViewIfNeeded();
     await expect(card.locator('img[data-placeholder="true"]')).toBeVisible();
-    await expect(card.getByRole("link", { name: new RegExp(`Agendar ${name}`) })).toBeVisible();
+    await expect(card.getByRole("link", { name: "Agendar", exact: true })).toBeVisible();
+    await expect(card.getByRole("button", { name: "Próxima foto" })).toHaveCount(0);
     await shot(pub, info, "fotos-imagem-quebrada");
     await ctx.close();
   } finally {

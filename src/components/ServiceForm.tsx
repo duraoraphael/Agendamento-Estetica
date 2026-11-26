@@ -6,8 +6,12 @@ import { useRouter } from "next/navigation";
 import { useFormState } from "react-dom";
 import { upsertServiceAction, type ServiceFormState } from "@/app/admin/servicos/actions";
 import { ServicePhotos, type AdminPhoto, type ServicePhotosHandle, type UploadReport } from "@/components/ServicePhotos";
+import { VEHICLE_TYPES, VEHICLE_TYPE_LABELS, parseReaisToCents, type VehicleType } from "@/lib/pricing";
+import { formatCents } from "@/lib/format";
 
 interface ServiceFormProps {
+  /** Chave "Cobrar por tipo de veículo" e os preços por categoria já salvos (em reais, com vírgula). */
+  priceByType?: { enabled: boolean; table: Partial<Record<VehicleType, string>> };
   service?: {
     id: string;
     name: string;
@@ -21,7 +25,7 @@ interface ServiceFormProps {
   storageConfigured?: boolean;
 }
 
-export function ServiceForm({ service, photos = [], storageConfigured = true }: ServiceFormProps) {
+export function ServiceForm({ service, photos = [], storageConfigured = true, priceByType }: ServiceFormProps) {
   const router = useRouter();
   const [state, formAction] = useFormState<ServiceFormState, FormData>(upsertServiceAction, null);
   const errors = state?.errors ?? {};
@@ -35,6 +39,11 @@ export function ServiceForm({ service, photos = [], storageConfigured = true }: 
   const [price, setPrice] = useState(service ? (service.priceCents / 100).toFixed(2).replace(".", ",") : "");
   const [duration, setDuration] = useState(String(service?.durationMinutes ?? 30));
   const [active, setActive] = useState(service?.active ?? true);
+  // Preço por categoria (reais, vazio = usa o padrão). Controlados pelo mesmo motivo dos campos acima.
+  const [typePrices, setTypePrices] = useState<Record<VehicleType, string>>(
+    () => Object.fromEntries(VEHICLE_TYPES.map((t) => [t, priceByType?.table[t] ?? ""])) as Record<VehicleType, string>
+  );
+  const defaultCents = parseReaisToCents(price) ?? service?.priceCents ?? 0;
 
   // Serviço novo: depois de salvo, o ID existe e as fotos escolhidas podem subir.
   const createdId = state?.createdId ?? null;
@@ -139,6 +148,51 @@ export function ServiceForm({ service, photos = [], storageConfigured = true }: 
               {errors.durationMinutes && <p className="error-text">{errors.durationMinutes}</p>}
             </div>
           </div>
+
+          {priceByType && (
+            <div className="rounded-xl border border-line-strong p-4" role="group" aria-labelledby="preco-tipo-secao">
+              <h2 id="preco-tipo-secao" className="font-display text-lg font-bold uppercase tracking-wide text-fg">
+                Preço por tipo de veículo
+              </h2>
+              <p className="mt-1 text-sm text-fg-muted">
+                Deixe em branco para usar o preço padrão ({formatCents(defaultCents)}). Vale só com “Cobrar por tipo de veículo” ligado em Configurações.
+              </p>
+              {!priceByType.enabled && (
+                <div className="notice-warning mt-3" role="status">
+                  <p>
+                    Cobrança por tipo desligada: estes valores ficam guardados, mas não são usados (as clientes pagam o preço padrão).{" "}
+                    <Link href="/admin/configuracoes" className="font-semibold underline underline-offset-4">
+                      Ligar em Configurações
+                    </Link>
+                  </p>
+                </div>
+              )}
+              <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-3">
+                {VEHICLE_TYPES.map((t) => (
+                  <div key={t}>
+                    <label className="label" htmlFor={`price_${t}`}>
+                      {VEHICLE_TYPE_LABELS[t]} (R$)
+                    </label>
+                    <input
+                      id={`price_${t}`}
+                      name={`price_${t}`}
+                      inputMode="decimal"
+                      className="input"
+                      value={typePrices[t]}
+                      onChange={(e) => setTypePrices((p) => ({ ...p, [t]: e.target.value }))}
+                      placeholder="Padrão"
+                      aria-invalid={errors[`price_${t}`] ? true : undefined}
+                    />
+                    {errors[`price_${t}`] ? (
+                      <p className="error-text">{errors[`price_${t}`]}</p>
+                    ) : (
+                      typePrices[t].trim() === "" && <p className="hint-text">Usa o preço padrão ({formatCents(defaultCents)})</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <label className="flex items-center gap-2 text-sm text-fg-muted">
             <input

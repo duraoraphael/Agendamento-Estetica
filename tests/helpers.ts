@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/db";
 import { zonedToUtc, dateKeyInTz } from "@/lib/format";
 import { createBooking as createBookingCore } from "@/lib/booking";
+import type { PriceTable, VehicleType } from "@/lib/pricing";
 
 /**
  * resetDb() APAGA todas as tabelas. Só roda contra o PostgreSQL local e descartável dos testes (tests/pg-env.ts):
@@ -31,7 +32,7 @@ export async function resetDb() {
   await prisma.blockedPeriod.deleteMany();
   await prisma.googleCalendarAccount.deleteMany();
   await prisma.storageCleanup.deleteMany();
-  await prisma.service.deleteMany(); // ServiceImage sai em cascata
+  await prisma.service.deleteMany(); // ServiceImage e ServicePrice saem em cascata
   await prisma.businessHours.deleteMany();
   await prisma.user.deleteMany();
   await prisma.bookingLock.deleteMany();
@@ -62,11 +63,39 @@ export function uniquePlate(): string {
   return `TST${plateCounter % 10}A${String(Math.floor(plateCounter / 10) % 100).padStart(2, "0")}`;
 }
 
-/** Cria um veículo de teste para a cliente (placa única). */
-export async function createVehicleFor(userId: string, overrides: Partial<{ brand: string; model: string; plate: string }> = {}) {
+/**
+ * Cria um veículo de teste para a cliente (placa única). Sem `vehicleType` o veículo fica sem categoria (nulo), que é
+ * como ficaram os veículos cadastrados antes do preço por tipo.
+ */
+export async function createVehicleFor(
+  userId: string,
+  overrides: Partial<{ brand: string; model: string; plate: string; vehicleType: VehicleType | null }> = {}
+) {
   return prisma.vehicle.create({
-    data: { userId, brand: overrides.brand ?? "Fiat", model: overrides.model ?? "Argo", plate: overrides.plate ?? uniquePlate() },
+    data: {
+      userId,
+      brand: overrides.brand ?? "Fiat",
+      model: overrides.model ?? "Argo",
+      plate: overrides.plate ?? uniquePlate(),
+      vehicleType: overrides.vehicleType ?? null,
+    },
   });
+}
+
+/** Liga ou desliga "Cobrar por tipo de veículo" (linha única de SiteSettings), sem mexer nos demais campos. */
+export async function setPricing(opts: { enabled: boolean }) {
+  await prisma.siteSettings.upsert({
+    where: { id: 1 },
+    create: { id: 1, priceByVehicleType: opts.enabled },
+    update: { priceByVehicleType: opts.enabled },
+  });
+}
+
+/** Recria os preços por categoria do serviço (centavos). Categoria ausente da tabela = usa o preço padrão. */
+export async function setServicePrices(serviceId: string, table: PriceTable) {
+  await prisma.servicePrice.deleteMany({ where: { serviceId } });
+  const rows = Object.entries(table).map(([vehicleType, priceCents]) => ({ serviceId, vehicleType, priceCents: priceCents as number }));
+  if (rows.length > 0) await prisma.servicePrice.createMany({ data: rows });
 }
 
 /**

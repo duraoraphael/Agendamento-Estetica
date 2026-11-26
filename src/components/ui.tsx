@@ -2,6 +2,7 @@ import type { InputHTMLAttributes, ReactNode } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { LOGO } from "@/lib/site";
+import { horarioUrl, veiculoUrl } from "@/lib/booking-urls";
 
 const focusRing =
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 focus-visible:ring-offset-ink";
@@ -114,14 +115,14 @@ export function Field({
 
 export type StepNumber = 1 | 2 | 3 | 4;
 
-/** Indicador das quatro etapas do agendamento: serviço, data e horário, veículo, revisão. */
-export function Stepper({ current, serviceId, startAt }: { current: StepNumber; serviceId?: string; startAt?: string }) {
-  const horario = serviceId ? `/agendar/horario?${new URLSearchParams({ serviceId }).toString()}` : undefined;
-  const veiculo = serviceId && startAt ? `/agendar/veiculo?${new URLSearchParams({ serviceId, startAt }).toString()}` : undefined;
+/** Indicador das quatro etapas do agendamento: serviço, veículo, data e horário, revisão. */
+export function Stepper({ current, serviceId, vehicleId }: { current: StepNumber; serviceId?: string; vehicleId?: string }) {
+  const veiculo = serviceId ? veiculoUrl(serviceId) : undefined;
+  const horario = serviceId && vehicleId ? horarioUrl(serviceId, { vehicleId }) : undefined;
   const steps = [
     { n: 1, label: "Serviço", href: "/agendar" },
-    { n: 2, label: "Data e horário", href: horario },
-    { n: 3, label: "Veículo", href: veiculo },
+    { n: 2, label: "Veículo", href: veiculo },
+    { n: 3, label: "Data e horário", href: horario },
     { n: 4, label: "Revisão", href: undefined },
   ] as const;
 

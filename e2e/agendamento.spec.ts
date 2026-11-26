@@ -176,9 +176,13 @@ test("cliente: reserva pela interface (3+ dias à frente) e aparece em Próximos
   // Etapa 1: cartões de serviço selecionáveis.
   await page.locator("label").filter({ hasText: "Higienização de ar-condicionado" }).click();
   await page.getByRole("button", { name: "Continuar" }).click();
-  await expect(page).toHaveURL(/\/agendar\/horario/);
 
-  // Etapa 2: calendário mensal (dias sem atendimento ficam desativados) e horários livres.
+  // Etapa 2: veículo (cadastro rápido, sem sair do agendamento) e observações, ANTES de escolher o horário.
+  await expect(page).toHaveURL(/\/agendar\/veiculo/);
+  await check(page, info, "05b-veiculo");
+  await completeVehicleStep(page, { plate: "abc-1d23", notes: "Atenção especial nas rodas." });
+
+  // Etapa 3: calendário mensal (dias sem atendimento ficam desativados) e horários livres.
   await expect(page.locator("[data-date]").first()).toBeVisible();
   expect(await page.locator("[data-date][disabled]").count(), "deve haver datas desativadas (passado e dias sem expediente)").toBeGreaterThan(0);
   let picked = false;
@@ -204,12 +208,7 @@ test("cliente: reserva pela interface (3+ dias à frente) e aparece em Próximos
   await check(page, info, "05-horarios");
   await page.getByRole("button", { name: "Continuar" }).click();
 
-  // Etapa 3: veículo (cadastro rápido, sem sair do agendamento) e observações.
-  await expect(page).toHaveURL(/\/agendar\/veiculo/);
-  await check(page, info, "05b-veiculo");
-  await completeVehicleStep(page, { plate: "abc-1d23", notes: "Atenção especial nas rodas." });
-
-  // Etapa 4: revisão com a placa parcialmente mascarada.
+  // Etapa 4: revisão com a placa parcialmente mascarada e o valor final.
   await expect(page).toHaveURL(/\/agendar\/revisar/);
   await expect(page.getByText(/cancelar pelo site até 24 horas/)).toBeVisible(); // política antes de confirmar
   await expect(page.getByText("Fiat Argo")).toBeVisible();
@@ -235,8 +234,9 @@ test("cliente: reserva pela interface (3+ dias à frente) e aparece em Próximos
 
 test("cliente: limite de 3 reservas futuras ativas (aviso na tela e recusa no servidor)", async ({ page }, info) => {
   watch(page);
+  // Mesmo dia, horas diferentes: "9" e "10" dias à frente podem cair no mesmo dia útil (quando passam pelo fim de semana).
   await insertAppointment(state.clientId!, slotIso(9, 10));
-  await insertAppointment(state.clientId!, slotIso(10, 10));
+  await insertAppointment(state.clientId!, slotIso(9, 11));
   await login(page, state.email!, PASSWORD);
   await page.goto("/agendar");
   await expect(page.getByText(/limite por cliente/)).toBeVisible();

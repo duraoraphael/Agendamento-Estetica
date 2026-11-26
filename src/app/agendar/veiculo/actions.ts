@@ -5,27 +5,27 @@ import { requireClient } from "@/lib/session";
 import { idSchema, notesSchema } from "@/lib/validation";
 import { RATE_LIMITS } from "@/lib/constants";
 import { hitLimit, limitKey } from "@/lib/rate-limit";
-import { createVehicle, getVehicleForUser, parseVehicleForm, vehicleFieldErrors, VehicleError } from "@/lib/vehicles";
+import { completeVehicleType, createVehicle, getVehicleForUser, parseVehicleForm, vehicleFieldErrors, VehicleError } from "@/lib/vehicles";
 import { setNotesDraft } from "@/lib/booking-draft";
 import { prisma } from "@/lib/db";
-import { revisarUrl } from "@/lib/booking-urls";
+import { horarioUrl } from "@/lib/booking-urls";
+import { isVehicleType } from "@/lib/pricing";
+import { loadPriceByTypeEnabled } from "@/lib/pricing-data";
 
 export type VehicleStepState = { error?: string; fieldErrors?: Record<string, string> } | null;
 
 const NEW_PREFIX = "novo_";
 
 /**
- * Etapa 3 do agendamento: escolher um veículo da conta OU cadastrar um novo, e informar observações. Tudo é validado
- * aqui (o formulário é só uma conveniência): o ID do veículo vem do formulário e só vale se for da própria cliente.
+ * Etapa 2 do agendamento (antes do horário): escolher um veículo da conta OU cadastrar um novo, e informar observações.
+ * Tudo é validado aqui (o formulário é só uma conveniência): o ID do veículo vem do formulário e só vale se for da
+ * própria cliente. Com a cobrança por tipo ligada, veículo antigo sem tipo exige o tipo antes de seguir.
  */
 export async function saveVehicleStepAction(_prev: VehicleStepState, formData: FormData): Promise<VehicleStepState> {
   const user = await requireClient();
 
   const serviceId = formData.get("serviceId")?.toString() ?? "";
-  const startAtIso = formData.get("startAtIso")?.toString() ?? "";
-  if (!idSchema.safeParse(serviceId).success || startAtIso.length > 40 || Number.isNaN(new Date(startAtIso).getTime())) {
-    return { error: "Dados do agendamento incompletos. Volte e escolha o serviço e o horário novamente." };
-  }
+  if (!idSchema.safeParse(serviceId).success) return { error: "Dados do agendamento incompletos. Volte e escolha o serviço novamente." };
   const service = await prisma.service.findUnique({ where: { id: serviceId }, select: { active: true } });
   if (!service?.active) return { error: "Esse serviço não está mais disponível. Volte e escolha outro serviço." };
 
@@ -48,12 +48,19 @@ export async function saveVehicleStepAction(_prev: VehicleStepState, formData: F
       return { error: "Não foi possível salvar o veículo. Tente novamente." };
     }
   } else {
-    if (!idSchema.safeParse(choice).success || !(await getVehicleForUser(user.id, choice))) {
-      return { fieldErrors: { vehicleChoice: "Escolha um veículo da lista ou cadastre um novo." } };
+    const vehicle = idSchema.safeParse(choice).success ? await getVehicleForUser(user.id, choice) : null;
+    if (!vehicle) return { fieldErrors: { vehicleChoice: "Escolha um veículo da lista ou cadastre um novo." } };
+    vehicleId = vehicle.id;
+
+    // Veículo antigo (sem tipo) com a cobrança por tipo ligada: o tipo é obrigatório para calcular o valor.
+    if (vehicle.vehicleType === null && (await loadPriceByTypeEnabled())) {
+      const type = formData.get("completeType")?.toString();
+      if (!isVehicleType(type)) return { fieldErrors: { completeType: "Escolha o tipo do veículo para continuar." } };
+      await completeVehicleType(user.id, vehicle.id, type);
     }
-    vehicleId = choice;
   }
 
   await setNotesDraft(notes.data);
-  redirect(revisarUrl(serviceId, new Date(startAtIso).toISOString(), vehicleId));
+  // `data` e `hora` (preferências do agendamento rápido) são filtradas por horarioUrl: valor inválido some.
+  redirect(horarioUrl(serviceId, { vehicleId, data: formData.get("data")?.toString(), hora: formData.get("hora")?.toString() }));
 }

@@ -34,7 +34,7 @@ Tema escuro com amarelo estratégico, definido num só lugar: `src/lib/theme.ts`
 
 | Rota | Quem acessa | O que é |
 |---|---|---|
-| `/` | todos (cliente logada vai para a conta) | landing: abertura, agendamento rápido, serviços, diferenciais, contato |
+| `/` | todos (cliente logada vai para a conta) | landing: abertura, serviços (sem preços), diferenciais, contato (só ícones) |
 | `/servicos` | todos | serviços com descrição, duração, preço, benefícios e foto |
 | `/login`, `/cadastro`, `/recuperar-senha`, `/redefinir-senha` | visitantes | acesso (com mostrar/ocultar senha e callback seguro) |
 | `/agendar` → `/agendar/horario` → `/agendar/veiculo` → `/agendar/revisar` → `/agendar/confirmado/[id]` | cliente | fluxo de **4 etapas** (serviço, data e horário, veículo, revisão) e a confirmação |
@@ -166,11 +166,30 @@ Comportamento (idempotente: rodar de novo não muda mais nada; coberto por `test
 
 ## Veículos e o fluxo de 4 etapas
 
-1. **Serviço** → 2. **Data e horário** (calendário mensal acessível; dias passados, fora do horizonte de 60 dias ou sem expediente
-ficam desativados; atualização silenciosa da lista; "próximo dia com horário"; conflito tratado se outra cliente ocupar o
-horário) → 3. **Veículo** (escolher um veículo da conta **ou cadastrar um novo na hora**, mais observações de até 500
-caracteres) → 4. **Revisão** (serviço, data, duração, valor, veículo com **placa parcialmente mascarada**, observações, local e
-política de cancelamento) → **Confirmação** (`/agendar/confirmado/[id]`, só para a dona da reserva).
+1. **Serviço** → 2. **Veículo** (escolher um veículo da conta **ou cadastrar um novo na hora**, mais observações de até 500
+caracteres; mostra o valor para o veículo escolhido) → 3. **Data e horário** (calendário mensal acessível; dias passados, fora
+do horizonte de 60 dias ou sem expediente ficam desativados; atualização silenciosa da lista; "próximo dia com horário";
+conflito tratado se outra cliente ocupar o horário) → 4. **Revisão** (serviço, data, duração, **valor final**, veículo com
+**placa parcialmente mascarada**, observações, local e política de cancelamento) → **Confirmação** (`/agendar/confirmado/[id]`,
+só para a dona da reserva). Quem ainda não tem veículo cadastra na etapa 2, e o serviço e a preferência de dia/horário são
+mantidos; vale também para o primeiro acesso com Google.
+
+### Preço por tipo de veículo
+
+Em **Configurações** a administradora liga **"Cobrar por tipo de veículo"** (começa desligado). Em cada serviço (**Editar**) ela
+define o preço por categoria: **Hatch, Sedã, SUV, Picape e Van/Utilitário**. Campo vazio = usa o preço padrão do serviço (o
+painel avisa isso).
+
+- **Desligado:** todos pagam o preço padrão. Os preços por categoria ficam guardados e voltam a valer se a chave for ligada.
+- A chave liga e desliga com um clique em **Configurações**. Se houver preços por categoria salvos com ela desligada, o painel
+  de serviços avisa que eles não estão valendo.
+- **Ligado:** `/servicos` e a etapa 1 mostram **"A partir de R$ X"** (a página inicial não mostra preços) quando o preço
+  varia; a etapa do veículo e a revisão mostram o **valor exato** do veículo escolhido.
+- **Tipo de veículo** é obrigatório no cadastro e na edição (marca e modelo continuam separados: Toyota / Corolla / Sedã).
+  Veículos antigos ficam sem tipo; com a chave ligada, a cliente completa o tipo na etapa do veículo.
+- **Segurança:** o valor é calculado **só no servidor** na hora da reserva (o valor da tela é apenas conferência: se a tabela
+  mudar entre a revisão e a confirmação, a reserva é recusada com aviso e nada é gravado). O valor fica gravado na reserva e
+  não muda se a tabela, a chave ou o serviço mudarem depois.
 
 - **Obrigatório no servidor:** `createBooking` exige `vehicleId` e confere, dentro do `runLocked`, que o veículo é **da própria
   cliente** (de outra pessoa responde como inexistente). A tela é só conveniência.
@@ -212,6 +231,14 @@ ela mesma). Coberto por `tests/booking-vehicle-reschedule.test.ts` (inclusive co
   dependência nova: defina `RESEND_API_KEY` e `MAIL_FROM` (domínio verificado) e `NEXTAUTH_URL` com o endereço público. Para
   SMTP ou outro provedor, implemente `MailTransport` e registre em `transports`.
 
+## Ativar login Google para clientes
+
+1. No [Google Cloud Console](https://console.cloud.google.com/auth/clients), crie um cliente OAuth do tipo **Aplicativo da Web** para o login dos clientes. Configure o público como externo. No modo de teste, adicione as contas que poderão testar. Para disponibilizar ao público, publique o app na configuração de público do Google.
+2. Em **URIs de redirecionamento autorizados**, informe `http://localhost:3000/api/auth/callback/google` para desenvolvimento e `https://SEU-DOMINIO/api/auth/callback/google` para produção. O domínio deve coincidir com o de `NEXTAUTH_URL`.
+3. Configure `GOOGLE_LOGIN_CLIENT_ID` e `GOOGLE_LOGIN_CLIENT_SECRET` no ambiente do servidor. Aplique a migração com `npm run db:deploy` no banco de destino antes de publicar a versão. Os botões aparecem quando as duas variáveis estão configuradas.
+
+O primeiro cadastro com Google pede WhatsApp e consentimento. Quem já tem cadastro entra com e-mail e senha uma vez e usa **Vincular conta Google** em **Minha conta**, escolhendo uma conta Google com o mesmo e-mail verificado. O acesso administrativo usa e-mail e senha. Este login solicita apenas identidade, e-mail e perfil.
+
 ## Conectar o Google Agenda
 
 A integração é opcional: **o site funciona inteiramente com a agenda interna
@@ -240,6 +267,12 @@ bloqueiam horários no site.
 6. Reinicie o servidor e acesse **Google Agenda** (`/admin/configuracoes/google`)
    no painel administrativo → **Conectar Google Agenda** → autorize o acesso
    com a conta Google da administradora.
+
+**Se as clientes não conseguem agendar** ("Não foi possível verificar a agenda") e o painel mostra que a autorização do
+Google expirou ou foi revogada (`invalid_grant`): em **Google Agenda** clique em **Desconectar** e conecte de novo. Com o app
+OAuth no modo **"Teste"** no Google Cloud, a autorização vence em **7 dias** — publique o app (tela de consentimento OAuth →
+**Publicar app / Em produção**) para não repetir. Enquanto a agenda conectada não responde, o site não oferece horários
+(por segurança, para não marcar por cima de compromissos).
 
 **Para testar:** confirme uma reserva pelo fluxo da cliente e veja o evento
 aparecer na agenda do Google em poucos segundos. Em cada reserva, o painel

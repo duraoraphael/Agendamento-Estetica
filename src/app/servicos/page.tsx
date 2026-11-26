@@ -1,10 +1,14 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
-import { formatCents } from "@/lib/format";
+import { loadPriceByTypeEnabled, loadPriceTables } from "@/lib/pricing-data";
+import { priceLabel } from "@/lib/pricing";
+import { ServicePrice } from "@/components/ServicePrice";
 import { getServiceInfo } from "@/lib/service-catalog";
 import { PHOTOS } from "@/lib/site";
 import { getServiceGalleries } from "@/lib/service-images";
+import { veiculoUrl } from "@/lib/booking-urls";
 import { ServiceImageView } from "@/components/ServiceImageView";
+import { ServicePhotoCarousel } from "@/components/ServicePhotoCarousel";
 import { PublicHeader } from "@/components/PublicHeader";
 import { SiteFooter } from "@/components/SiteFooter";
 import { EmptyState, PageHeader } from "@/components/ui";
@@ -18,6 +22,7 @@ export const metadata = {
 export default async function ServicosPage() {
   const services = await prisma.service.findMany({ where: { active: true }, orderBy: { name: "asc" } });
   const galleries = await getServiceGalleries(services);
+  const [priceByType, priceTables] = await Promise.all([loadPriceByTypeEnabled(), loadPriceTables(services.map((s) => s.id))]);
 
   return (
     <>
@@ -33,26 +38,21 @@ export default async function ServicosPage() {
               {services.map((s, i) => {
                 const info = getServiceInfo(s.name);
                 const placeholder = PHOTOS[info.photo];
-                const [cover, ...gallery] = galleries.get(s.id) ?? [];
+                const photos = galleries.get(s.id) ?? [];
+                const titleId = `servico-${s.id}`;
                 return (
                   <li key={s.id} className="overflow-hidden rounded-2xl border border-brand/45 bg-surface md:grid md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-                    <div className="flex flex-col bg-ink">
-                      {/* Só o primeiro card está na primeira tela: ele ganha priority; os demais carregam sob demanda. */}
-                      <ServiceImageView
-                        photo={cover}
-                        fallback={placeholder}
-                        sizes="(min-width: 768px) 40vw, 100vw"
-                        priority={i === 0}
-                        className="aspect-[3/2] w-full flex-1 object-cover"
-                      />
-                      {gallery.length > 0 && (
-                        <ul aria-label={`Mais fotos de ${s.name}`} className="grid grid-cols-5 gap-px">
-                          {gallery.slice(0, 5).map((g) => (
-                            <li key={g.id}>
-                              <ServiceImageView photo={g} fallback={placeholder} sizes="(min-width: 768px) 8vw, 20vw" className="aspect-[4/3] w-full object-cover" />
-                            </li>
-                          ))}
-                        </ul>
+                    <div className="min-w-0 bg-ink">
+                      {photos.length > 1 ? (
+                        <ServicePhotoCarousel photos={photos} fallback={placeholder} serviceName={s.name} priority={i === 0} />
+                      ) : (
+                        <ServiceImageView
+                          photo={photos[0]}
+                          fallback={placeholder}
+                          sizes="(min-width: 768px) 40vw, 100vw"
+                          priority={i === 0}
+                          className="aspect-[3/2] w-full object-cover"
+                        />
                       )}
                     </div>
                     <div className="p-5 sm:p-6">
@@ -61,7 +61,7 @@ export default async function ServicosPage() {
                           <ServiceIcon name={info.icon} />
                         </span>
                         <div>
-                          <h2 className="text-3xl text-fg">{s.name}</h2>
+                          <h2 id={titleId} className="text-3xl text-fg">{s.name}</h2>
                           <p className="mt-1 flex items-center gap-1.5 text-sm text-fg-muted">
                             <ClockIcon className="h-4 w-4" /> Duração média: {s.durationMinutes} min
                           </p>
@@ -77,12 +77,18 @@ export default async function ServicosPage() {
                         ))}
                       </ul>
                       <div className="mt-5 flex flex-wrap items-center justify-between gap-4">
-                        <p>
-                          <span className="block text-xs font-bold uppercase tracking-wider text-fg-muted">Preço</span>
-                          <span className="font-display text-3xl font-extrabold text-brand">{formatCents(s.priceCents)}</span>
-                        </p>
-                        <Link href={`/agendar/horario?serviceId=${encodeURIComponent(s.id)}`} className="btn-primary w-full sm:w-auto">
-                          Agendar {s.name}
+                        {(() => {
+                          const label = priceLabel({ enabled: priceByType, defaultCents: s.priceCents, table: priceTables.get(s.id) ?? {} });
+                          return (
+                            <p>
+                              {/* O "A partir de" já faz o papel do rótulo quando o preço varia por tipo de veículo. */}
+                              {!label.prefix && <span className="block text-xs font-bold uppercase tracking-wider text-fg-muted">Preço</span>}
+                              <ServicePrice label={label} className="font-display text-3xl font-extrabold text-brand !text-left" />
+                            </p>
+                          );
+                        })()}
+                        <Link href={veiculoUrl(s.id)} aria-describedby={titleId} className="btn-primary w-full sm:w-auto">
+                          Agendar
                         </Link>
                       </div>
                     </div>

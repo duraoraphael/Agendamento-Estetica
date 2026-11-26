@@ -8,6 +8,7 @@ import { getClientIp, hitLimit, limitKey, normalizeEmailForLimit, refundLimit, r
 import { securityLog, shortHash } from "./security-log";
 import { recordAuditCoalesced } from "./audit-log";
 import type { Role } from "./types";
+import { googleLoginProviders } from "./google-auth";
 
 /** Código devolvido ao navegador quando o limite de tentativas foi atingido. */
 export const RATE_LIMITED_ERROR = "RATE_LIMITED";
@@ -51,6 +52,7 @@ export const authOptions: AuthOptions = {
   session: { strategy: "jwt", maxAge: 7 * 24 * 60 * 60 },
   pages: {
     signIn: "/login",
+    error: "/login",
   },
   providers: [
     CredentialsProvider({
@@ -112,7 +114,7 @@ export const authOptions: AuthOptions = {
         // o tempo de resposta não revela se a conta existe.
         const valid = await bcrypt.compare(password, user?.passwordHash ?? DUMMY_HASH);
 
-        if (!user || !valid) {
+        if (!user?.passwordHash || !valid) {
           securityLog("login_failed", { emailHash: shortHash(email) });
           // Agregado por e-mail e hora, com teto de linhas distintas. Só o hash do e-mail é guardado; nunca a senha.
           await recordAuditCoalesced({ action: "login_failed", result: "FALHA", subject: email, actorId: user?.id ?? null });
@@ -136,6 +138,7 @@ export const authOptions: AuthOptions = {
         };
       },
     }),
+    ...googleLoginProviders(),
   ],
   // Eventos do NextAuth: disparados DEPOIS que o login foi aceito e a sessão emitida (login) e quando a pessoa encerra a
   // sessão (logout). Nunca lançam: o log não pode impedir entrar nem sair.

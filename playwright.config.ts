@@ -17,6 +17,8 @@ export const E2E_ENV = {
   GOOGLE_CLIENT_ID: "",
   GOOGLE_CLIENT_SECRET: "",
   GOOGLE_REDIRECT_URI: "",
+  GOOGLE_LOGIN_CLIENT_ID: "client-id-e2e-ficticio",
+  GOOGLE_LOGIN_CLIENT_SECRET: "client-secret-e2e-ficticio",
   ADMIN_EMAIL: "admin.e2e@example.com",
   ADMIN_PASSWORD: "E2E-Admin#2026",
   ADMIN_NAME: "Admin E2E",

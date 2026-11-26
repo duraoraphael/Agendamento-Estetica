@@ -3,9 +3,9 @@ import { resetDb, openAllWeek, createClient, createService, createBooking, nextD
 import { prisma } from "@/lib/db";
 import { formatPlate, isValidPlate, maskPlate, normalizePlate } from "@/lib/plate";
 import { notesSchema, plateSchema, vehicleSchema, LIMITS } from "@/lib/validation";
-import { createVehicle, deleteVehicle, getVehicleForUser, listVehicles, parseVehicleForm, updateVehicle, VehicleError } from "@/lib/vehicles";
+import { completeVehicleType, createVehicle, deleteVehicle, getVehicleForUser, listVehicles, parseVehicleForm, updateVehicle, VehicleError } from "@/lib/vehicles";
 
-const input = (over: Record<string, unknown> = {}) => vehicleSchema.parse({ brand: "Fiat", model: "Argo", plate: "ABC1D23", ...over });
+const input = (over: Record<string, unknown> = {}) => vehicleSchema.parse({ brand: "Fiat", model: "Argo", plate: "ABC1D23", vehicleType: "SEDA", ...over });
 
 describe("Placas brasileiras", () => {
   it("normaliza (maiúsculas, sem separadores) e aceita os formatos antigo e Mercosul", () => {
@@ -33,14 +33,25 @@ describe("Placas brasileiras", () => {
 });
 
 describe("Validação do veículo e das observações (servidor)", () => {
-  it("exige marca, modelo e placa; ano, cor e apelido são opcionais", () => {
-    expect(vehicleSchema.safeParse({ brand: "", model: "Argo", plate: "ABC1D23" }).success).toBe(false);
-    expect(vehicleSchema.safeParse({ brand: "Fiat", model: "", plate: "ABC1D23" }).success).toBe(false);
+  it("exige marca, modelo, tipo e placa; ano, cor e apelido são opcionais", () => {
+    expect(vehicleSchema.safeParse({ brand: "", model: "Argo", plate: "ABC1D23", vehicleType: "SEDA" }).success).toBe(false);
+    expect(vehicleSchema.safeParse({ brand: "Fiat", model: "", plate: "ABC1D23", vehicleType: "SEDA" }).success).toBe(false);
     const ok = input();
     expect(ok.year).toBeNull();
     expect(ok.color).toBeNull();
     expect(ok.nickname).toBeNull();
     expect(input({ year: "2021", color: " Preto ", nickname: "Daily" })).toMatchObject({ year: 2021, color: "Preto", nickname: "Daily" });
+  });
+
+  it("o tipo do veículo é obrigatório e só aceita as categorias da lista", () => {
+    const base = { brand: "Fiat", model: "Argo", plate: "ABC1D23" };
+    expect(vehicleSchema.safeParse(base).success).toBe(false);
+    expect(vehicleSchema.safeParse({ ...base, vehicleType: "" }).success).toBe(false);
+    expect(vehicleSchema.safeParse({ ...base, vehicleType: "BARCO" }).success).toBe(false);
+    expect(vehicleSchema.safeParse({ ...base, vehicleType: "suv" }).success).toBe(false);
+    const missing = vehicleSchema.safeParse(base);
+    expect(!missing.success && missing.error.issues[0]).toMatchObject({ path: ["vehicleType"], message: "Escolha o tipo do veículo." });
+    for (const t of ["HATCH", "SEDA", "SUV", "PICAPE", "VAN"]) expect(vehicleSchema.parse({ ...base, vehicleType: t }).vehicleType).toBe(t);
   });
 
   it("recusa ano impossível, textos longos e caracteres de controle ou de direção (bidi)", () => {
@@ -52,13 +63,22 @@ describe("Validação do veículo e das observações (servidor)", () => {
   });
 
   it("não deixa passar campos extras (mass assignment): userId e id do formulário são descartados", () => {
-    const parsed = vehicleSchema.parse({ brand: "Fiat", model: "Argo", plate: "ABC1D23", userId: "outra-pessoa", id: "x", role: "ADMIN" });
-    expect(Object.keys(parsed).sort()).toEqual(["brand", "color", "model", "nickname", "plate", "year"]);
+    const parsed = vehicleSchema.parse({ brand: "Fiat", model: "Argo", plate: "ABC1D23", vehicleType: "SUV", userId: "outra-pessoa", id: "x", role: "ADMIN" });
+    expect(Object.keys(parsed).sort()).toEqual(["brand", "color", "model", "nickname", "plate", "vehicleType", "year"]);
     const fd = new FormData();
-    for (const [k, v] of Object.entries({ brand: "Fiat", model: "Argo", plate: "abc1d23", userId: "outra-pessoa" })) fd.set(k, v);
+    for (const [k, v] of Object.entries({ brand: "Fiat", model: "Argo", plate: "abc1d23", vehicleType: "SUV", userId: "outra-pessoa" })) fd.set(k, v);
     const viaForm = parseVehicleForm(fd);
     expect(viaForm.success).toBe(true);
     expect(viaForm.success && Object.keys(viaForm.data)).not.toContain("userId");
+  });
+
+  it("parseVehicleForm lê o tipo com o prefixo do formulário da etapa de agendamento", () => {
+    const fd = new FormData();
+    for (const [k, v] of Object.entries({ novo_brand: "Toyota", novo_model: "Corolla", novo_plate: "abc1d23", novo_vehicleType: "SEDA" })) fd.set(k, v);
+    const parsed = parseVehicleForm(fd, "novo_");
+    expect(parsed.success && parsed.data).toMatchObject({ brand: "Toyota", model: "Corolla", vehicleType: "SEDA" });
+    fd.delete("novo_vehicleType");
+    expect(parseVehicleForm(fd, "novo_").success).toBe(false);
   });
 
   it("observações: vazio vira nulo, até 500 caracteres, sem controles e quebras de linha preservadas", () => {
@@ -107,6 +127,32 @@ describe("Veículos: propriedade, unicidade e histórico", () => {
     await createVehicle(a.id, input({ plate: "abc-1d23" }));
     await expect(createVehicle(a.id, input({ plate: "ABC1D23" }))).rejects.toThrow(/já cadastrou/);
     await expect(createVehicle(b.id, input({ plate: "ABC1D23" }))).resolves.toMatchObject({ plate: "ABC1D23" });
+  });
+
+  it("grava o tipo ao cadastrar e ao editar", async () => {
+    const c = await createClient();
+    const v = await createVehicle(c.id, input({ vehicleType: "HATCH" }));
+    expect(v.vehicleType).toBe("HATCH");
+    const edited = await updateVehicle(c.id, v.id, input({ vehicleType: "PICAPE" }));
+    expect(edited?.vehicleType).toBe("PICAPE");
+  });
+
+  it("completeVehicleType preenche o tipo de um veículo antigo (sem categoria) e só dele", async () => {
+    const a = await createClient();
+    const b = await createClient();
+    const legacy = await prisma.vehicle.create({ data: { userId: a.id, brand: "Fiat", model: "Uno", plate: uniquePlate() } });
+    expect(legacy.vehicleType).toBeNull();
+
+    // Outra cliente não consegue completar o veículo alheio.
+    expect(await completeVehicleType(b.id, legacy.id, "SUV")).toBe(false);
+    expect((await prisma.vehicle.findUniqueOrThrow({ where: { id: legacy.id } })).vehicleType).toBeNull();
+
+    expect(await completeVehicleType(a.id, legacy.id, "SUV")).toBe(true);
+    expect((await prisma.vehicle.findUniqueOrThrow({ where: { id: legacy.id } })).vehicleType).toBe("SUV");
+
+    // Quem já tem tipo não é alterado por este caminho (a edição normal é o caminho para mudar).
+    expect(await completeVehicleType(a.id, legacy.id, "VAN")).toBe(false);
+    expect((await prisma.vehicle.findUniqueOrThrow({ where: { id: legacy.id } })).vehicleType).toBe("SUV");
   });
 
   it("limita a quantidade de veículos por conta", async () => {

@@ -3,6 +3,7 @@ import { requireClient } from "@/lib/session";
 import { listVehicles, vehicleLabel } from "@/lib/vehicles";
 import { formatPlate } from "@/lib/plate";
 import { LIMITS } from "@/lib/validation";
+import { VEHICLE_TYPE_LABELS, isVehicleType } from "@/lib/pricing";
 import { EmptyState, Notice, Page, PageHeader } from "@/components/ui";
 import { CarIcon, ChevronRightIcon, PlusIcon } from "@/components/icons";
 
@@ -67,10 +68,14 @@ export default async function VeiculosPage({ searchParams: searchParamsPromise }
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-display text-xl font-bold uppercase tracking-wide text-fg">{vehicleLabel(v)}</span>
                     <span className="block text-sm text-fg-muted">
+                      {isVehicleType(v.vehicleType) ? `${VEHICLE_TYPE_LABELS[v.vehicleType]} · ` : ""}
                       {formatPlate(v.plate)}
                       {v.year ? ` · ${v.year}` : ""}
                       {v.color ? ` · ${v.color}` : ""}
                     </span>
+                    {!isVehicleType(v.vehicleType) && (
+                      <span className="mt-1 block text-sm font-semibold text-brand">Tipo não informado — toque para completar</span>
+                    )}
                   </span>
                   <ChevronRightIcon className="h-5 w-5 text-brand" />
                   <span className="sr-only">Editar veículo</span>

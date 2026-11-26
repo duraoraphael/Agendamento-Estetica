@@ -28,7 +28,7 @@ export default async function EditarVeiculoPage({ params }: { params: Promise<{ 
       <div className="card mt-6">
         <VehicleForm
           vehicleId={vehicle.id}
-          defaults={{ brand: vehicle.brand, model: vehicle.model, plate: vehicle.plate, year: vehicle.year, color: vehicle.color, nickname: vehicle.nickname }}
+          defaults={{ brand: vehicle.brand, model: vehicle.model, vehicleType: vehicle.vehicleType, plate: vehicle.plate, year: vehicle.year, color: vehicle.color, nickname: vehicle.nickname }}
         />
       </div>
       <div className="mt-6">

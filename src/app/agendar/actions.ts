@@ -6,7 +6,7 @@ import { requireClient } from "@/lib/session";
 import { generateSlotCandidatesForDate, isSlotAvailable, isValidDateKey, parseDateKey } from "@/lib/availability";
 import { fetchExternalBusy } from "@/lib/google-calendar";
 import { prisma } from "@/lib/db";
-import { createBooking, BookingConflictError, BookingValidationError, CalendarUnavailableError } from "@/lib/booking";
+import { createBooking, BookingConflictError, BookingPriceChangedError, BookingValidationError, CalendarUnavailableError } from "@/lib/booking";
 import { createBookingSchema, idSchema } from "@/lib/validation";
 import { RATE_LIMITS } from "@/lib/constants";
 import { hitLimit, limitKey } from "@/lib/rate-limit";
@@ -125,7 +125,7 @@ export async function checkSlotStillAvailableAction(serviceId: string, startAtIs
   }
 }
 
-export type ConfirmState = { error: string } | null;
+export type ConfirmState = { error: string; priceChanged?: true } | null;
 
 export async function confirmBookingAction(_prev: ConfirmState, formData: FormData): Promise<ConfirmState> {
   const user = await requireClient();
@@ -136,6 +136,8 @@ export async function confirmBookingAction(_prev: ConfirmState, formData: FormDa
     startAtIso: formData.get("startAtIso")?.toString(),
     vehicleId: formData.get("vehicleId")?.toString(),
     notes: formData.get("notes")?.toString() ?? "",
+    // Vazio/ausente = sem conferência de valor; o preço cobrado é sempre o recalculado no servidor (createBooking).
+    expectedPriceCents: formData.get("expectedPriceCents")?.toString() || undefined,
   });
   if (!parsed.success) {
     return { error: parsed.error.issues[0]?.message ?? "Dados do agendamento incompletos. Volte e escolha o serviço, o horário e o veículo novamente." };
@@ -157,12 +159,17 @@ export async function confirmBookingAction(_prev: ConfirmState, formData: FormDa
       startAt: new Date(parsed.data.startAtIso),
       vehicleId: parsed.data.vehicleId,
       notes: parsed.data.notes,
+      expectedPriceCents: parsed.data.expectedPriceCents,
     });
     createdId = created.id;
   } catch (err) {
     // Outra cliente ocupou o horário (ou ele deixou de valer): volta à escolha, com a lista atualizada e o aviso.
     if (err instanceof BookingConflictError) {
-      redirect(horarioUrl(parsed.data.serviceId, { conflito: true }));
+      redirect(horarioUrl(parsed.data.serviceId, { vehicleId: parsed.data.vehicleId, conflito: true }));
+    }
+    // A tabela de preços mudou entre a revisão e a confirmação: nada foi gravado; a tela oferece "Rever o agendamento".
+    if (err instanceof BookingPriceChangedError) {
+      return { error: err.message, priceChanged: true };
     }
     if (err instanceof BookingValidationError) {
       return { error: err.message };

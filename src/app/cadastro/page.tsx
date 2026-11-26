@@ -6,6 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { AuthShell } from "@/components/AuthShell";
 import { Field, Notice } from "@/components/ui";
 import { PasswordField } from "@/components/PasswordField";
+import { GoogleSignIn } from "@/components/GoogleSignIn";
 import { safeCallbackPath } from "@/lib/safe-redirect";
 
 type FieldErrors = Record<string, string>;
@@ -96,6 +97,7 @@ function CadastroForm() {
         </p>
       }
     >
+      <GoogleSignIn callbackUrl={callbackUrl} />
       <form ref={formRef} onSubmit={handleSubmit} className="space-y-5">
         {errors._form && <Notice tone="error">{errors._form}</Notice>}
 

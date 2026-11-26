@@ -23,7 +23,8 @@ model User {
   name                String
   email               String   @unique
   phone               String
-  passwordHash        String
+  passwordHash        String?
+  googleSubject       String?  @unique
   role                String   @default("CLIENTE")
   // Usado apenas pelo perfil ADMIN para saber quais agendamentos ainda não
   // foram "vistos" no painel (notificação de novo agendamento).
@@ -50,6 +51,9 @@ model Vehicle {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   brand     String
   model     String
+  // Categoria do veículo para o preço (HATCH | SEDA | SUV | PICAPE | VAN; veja src/lib/pricing.ts). Nulo = veículo
+  // cadastrado antes do preço por tipo: continua válido e é completado na etapa do agendamento quando a chave está ligada.
+  vehicleType String?
   plate     String
   year      Int?
   color     String?
@@ -89,6 +93,19 @@ model Service {
 
   appointments    Appointment[]
   images          ServiceImage[]
+  prices          ServicePrice[]
+}
+
+// Preço do serviço por categoria de veículo (centavos). Só vale com SiteSettings.priceByVehicleType ligado; categoria
+// sem linha usa o preço padrão do serviço. Veja src/lib/pricing.ts (regra) e pricing-data.ts (leitura sem cache).
+model ServicePrice {
+  id          String  @id @default(cuid())
+  serviceId   String
+  service     Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  vehicleType String
+  priceCents  Int
+
+  @@unique([serviceId, vehicleType])
 }
 
 // Fotos dos serviços. Os bytes ficam no Supabase Storage (bucket público `service-images`); aqui só os metadados.
@@ -161,6 +178,7 @@ model Appointment {
   vehicleBrandSnapshot String?
   vehicleModelSnapshot String?
   vehiclePlateSnapshot String?
+  vehicleTypeSnapshot  String?
   // Observações da cliente (até 500 caracteres; texto puro, escapado na exibição).
   notes                String?
 
@@ -269,6 +287,8 @@ model SiteSettings {
   instagramUrl  String   @default("")
   // 0 = sem logo enviada (usa a marca padrão). Incrementa a cada troca e serve de chave de cache da imagem.
   logoVersion   Int      @default(0)
+  // "Cobrar por tipo de veículo": desligada = preço padrão do serviço; ligada = preço por categoria (ServicePrice).
+  priceByVehicleType Boolean @default(false)
   updatedAt     DateTime @updatedAt
 }
 

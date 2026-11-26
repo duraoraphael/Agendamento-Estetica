@@ -55,6 +55,17 @@ h3 {
   .btn-secondary {
     @apply btn border border-brand/60 bg-transparent text-brand hover:bg-brand/10;
   }
+  .btn-google {
+    @apply grid min-h-[44px] w-full items-center gap-2.5 rounded-lg border border-[#747775] bg-white px-3 py-2 text-center text-sm font-medium leading-5 text-[#1f1f1f] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand disabled:cursor-wait disabled:opacity-70;
+    grid-template-columns: 20px minmax(0, 1fr) 20px;
+    font-family: "Google Sans", Arial, sans-serif;
+  }
+  .btn-google:enabled:hover {
+    @apply bg-[#f8faff];
+  }
+  .btn-google:enabled:active {
+    @apply bg-[#e8f0fe];
+  }
   .btn-ghost {
     @apply btn px-3 text-fg-muted hover:bg-surface-2 hover:text-fg;
   }

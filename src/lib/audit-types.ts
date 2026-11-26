@@ -73,6 +73,9 @@ export const AUDIT_ACTIONS = {
   blocked_period_created: { category: "ADMIN", label: "Bloqueio de horário criado" },
   blocked_period_deleted: { category: "ADMIN", label: "Bloqueio de horário removido" },
   settings_changed: { category: "ADMIN", label: "Configurações do site alteradas" },
+  // Preço por tipo de veículo (sem valores no registro: só se a chave foi ligada/desligada e quantas categorias mudaram)
+  pricing_mode_changed: { category: "ADMIN", label: "Cobrança por tipo de veículo ligada/desligada" },
+  service_prices_updated: { category: "ADMIN", label: "Preços por tipo de veículo do serviço alterados" },
   // Integrações (Google Agenda e agendador externo)
   google_connected: { category: "INTEGRACAO", label: "Google Agenda conectado" },
   google_connect_failed: { category: "INTEGRACAO", label: "Falha ao conectar o Google Agenda" },

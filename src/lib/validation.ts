@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { isValidPlate, normalizePlate } from "./plate";
 import { LIMITS } from "./limits";
+import { VEHICLE_TYPES } from "./pricing";
 
 // Celular brasileiro com DDD: (XX) XXXXX-XXXX ou (XX) XXXX-XXXX, com ou sem máscara.
 const phoneRegex = /^\(?\d{2}\)?[\s-]?\d{4,5}-?\d{4}$/;
@@ -176,6 +177,8 @@ export const vehicleSchema = z.object({
     .min(1, "Informe o modelo.")
     .max(LIMITS.vehicleModelMax, `Modelo: no máximo ${LIMITS.vehicleModelMax} caracteres.`)
     .refine((v) => hasNoControlChars(v), "Modelo: contém caracteres inválidos."),
+  // Categoria para o preço (lista fixa em src/lib/pricing.ts). Obrigatória em cadastro e edição; só veículos antigos ficam sem.
+  vehicleType: z.enum(VEHICLE_TYPES, { message: "Escolha o tipo do veículo." }),
   plate: plateSchema,
   year: z
     .union([z.literal(""), z.null(), z.coerce.number().int("Ano inválido.").min(1900, "Ano inválido.").max(new Date().getFullYear() + 1, "Ano inválido.")])
@@ -211,6 +214,8 @@ export const createBookingSchema = z.object({
   // Veículo e observações: o veículo é OBRIGATÓRIO para novas reservas (o servidor confere que é da própria cliente).
   vehicleId: z.string().min(1, "Escolha o veículo do agendamento.").max(LIMITS.idMax, "Veículo inválido."),
   notes: notesSchema,
+  // Valor mostrado na revisão. O servidor recalcula o preço e recusa se mudou; este campo NUNCA define o que é cobrado.
+  expectedPriceCents: z.coerce.number().int("Valor inválido.").min(0, "Valor inválido.").max(100_000_000, "Valor inválido.").optional(),
 });
 
 export const rescheduleSchema = z.object({

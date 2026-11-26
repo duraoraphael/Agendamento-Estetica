@@ -6,6 +6,8 @@ import {
   __setCalendarFactoryForTests,
   CalendarUnavailableError,
   eventIdForAppointment,
+  getGoogleAuthProblem,
+  GOOGLE_AUTH_EXPIRED_MESSAGE,
 } from "@/lib/google-calendar";
 import { updateAppointmentStatus, retryGoogleSync, cancelOwnBooking, BookingConflictError } from "@/lib/booking";
 import { createBooking } from "./helpers";
@@ -94,6 +96,27 @@ describe("Google Agenda — integração simulada", () => {
     it("falha do Google na consulta também bloqueia a listagem de horários", async () => {
       fake.setFreebusyFails(true);
       await expect(generateSlotCandidatesForDate(dateKeyDaysAhead(2), 60)).rejects.toBeInstanceOf(CalendarUnavailableError);
+    });
+
+    it("autorização expirada (invalid_grant): continua recusando, mas registra o que a administradora precisa fazer", async () => {
+      expect(await getGoogleAuthProblem()).toBeNull();
+      __setCalendarFactoryForTests(() => ({
+        ...fake.api,
+        freebusy: { query: async () => Promise.reject(Object.assign(new Error("invalid_grant"), { code: 400 })) },
+      }) as never);
+      await expect(generateSlotCandidatesForDate(dateKeyDaysAhead(2), 60)).rejects.toBeInstanceOf(CalendarUnavailableError);
+      expect(await getGoogleAuthProblem()).toBe(GOOGLE_AUTH_EXPIRED_MESSAGE);
+
+      // Voltou a responder (conta reconectada ou falha desfeita): o aviso some sozinho.
+      __setCalendarFactoryForTests(() => fake.api);
+      await generateSlotCandidatesForDate(dateKeyDaysAhead(3), 60);
+      expect(await getGoogleAuthProblem()).toBeNull();
+    });
+
+    it("falha passageira do Google não é tratada como autorização expirada", async () => {
+      fake.setFreebusyFails(true);
+      await expect(generateSlotCandidatesForDate(dateKeyDaysAhead(2), 60)).rejects.toBeInstanceOf(CalendarUnavailableError);
+      expect(await getGoogleAuthProblem()).toBeNull();
     });
 
     it("falha do Google na consulta bloqueia a reativação e mantém a reserva cancelada", async () => {

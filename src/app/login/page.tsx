@@ -2,21 +2,27 @@
 
 import { useState, Suspense } from "react";
 import { signIn } from "next-auth/react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { AuthShell } from "@/components/AuthShell";
 import { Field, Notice } from "@/components/ui";
 import { PasswordField } from "@/components/PasswordField";
+import { GoogleSignIn } from "@/components/GoogleSignIn";
 import { safeCallbackPath } from "@/lib/safe-redirect";
 
 function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   // Só caminhos do próprio site (evita redirecionamento aberto via ?callbackUrl=https://...).
   const callbackUrl = safeCallbackPath(searchParams.get("callbackUrl"));
   // A intenção (ex.: "agendar este serviço neste horário") acompanha a pessoa até o cadastro e de volta.
   const carry = callbackUrl !== "/" ? `?callbackUrl=${encodeURIComponent(callbackUrl)}` : "";
   const passwordChanged = searchParams.get("senha") === "alterada";
+  const authError = searchParams.get("error");
+  const googleError = authError === "GoogleRateLimited"
+    ? "Muitas tentativas com o Google. Aguarde alguns minutos e tente novamente."
+    : authError && /^(OAuth\w*|AccessDenied)$/.test(authError)
+      ? "Não foi possível entrar com o Google. Se você já tem cadastro, entre com e-mail e senha e vincule o Google em Minha conta."
+      : null;
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -31,6 +37,7 @@ function LoginForm() {
     const result = await signIn("credentials", {
       email,
       password,
+      callbackUrl,
       redirect: false,
     });
 
@@ -46,8 +53,8 @@ function LoginForm() {
       return;
     }
 
-    router.push(callbackUrl);
-    router.refresh();
+    // Solicita a página com a sessão recém-emitida, sem reutilizar uma navegação feita como visitante.
+    window.location.assign(callbackUrl);
   }
 
   return (
@@ -57,6 +64,8 @@ function LoginForm() {
       photo="hero"
       footer={null}
     >
+      {googleError && <div className="mb-4"><Notice tone="error">{googleError}</Notice></div>}
+      <GoogleSignIn callbackUrl={callbackUrl} />
       <form onSubmit={handleSubmit} className="space-y-5">
         {passwordChanged && <Notice tone="success">Senha alterada. Entre com a nova senha.</Notice>}
         <Field

@@ -1,6 +1,7 @@
 import { prisma } from "./db";
 import { recordAuditTx } from "./audit-log";
 import { LIMITS, vehicleSchema, type VehicleInput } from "./validation";
+import type { VehicleType } from "./pricing";
 import type { Prisma } from "@prisma/client";
 
 /** Erro com mensagem pronta para exibir (nunca contém dados de outra pessoa). */
@@ -41,6 +42,7 @@ export async function createVehicle(userId: string, input: VehicleInput) {
           userId,
           brand: input.brand,
           model: input.model,
+          vehicleType: input.vehicleType,
           plate: input.plate,
           year: input.year,
           color: input.color,
@@ -67,7 +69,7 @@ export async function updateVehicle(userId: string, vehicleId: string, input: Ve
     return await prisma.$transaction(async (tx) => {
       const updated = await tx.vehicle.updateMany({
         where: { id: vehicleId, userId },
-        data: { brand: input.brand, model: input.model, plate: input.plate, year: input.year, color: input.color, nickname: input.nickname },
+        data: { brand: input.brand, model: input.model, vehicleType: input.vehicleType, plate: input.plate, year: input.year, color: input.color, nickname: input.nickname },
       });
       if (updated.count === 0) throw new VehicleError(NOT_FOUND);
       await recordAuditTx(tx, {
@@ -83,6 +85,25 @@ export async function updateVehicle(userId: string, vehicleId: string, input: Ve
     if (isUniqueViolation(err)) throw new VehicleError(DUPLICATE_PLATE);
     throw err;
   }
+}
+
+/**
+ * Completa o tipo de um veículo antigo (cadastrado antes do preço por tipo). Só preenche quando o tipo está VAZIO e o
+ * veículo é da própria cliente; quem já tem tipo muda pela edição normal. Devolve `false` se nada foi alterado.
+ */
+export async function completeVehicleType(userId: string, vehicleId: string, type: VehicleType): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.vehicle.updateMany({ where: { id: vehicleId, userId, vehicleType: null }, data: { vehicleType: type } });
+    if (updated.count === 0) return false;
+    await recordAuditTx(tx, {
+      action: "vehicle_updated",
+      actorId: userId,
+      targetType: "Vehicle",
+      targetId: vehicleId,
+      dedupeKey: `vehicle_type_completed:${vehicleId}`,
+    });
+    return true;
+  });
 }
 
 /** Apaga o veículo. As reservas já feitas continuam com os dados copiados (snapshot); só o vínculo vira nulo. */
@@ -106,7 +127,15 @@ export async function deleteVehicle(userId: string, vehicleId: string) {
  */
 export function parseVehicleForm(formData: FormData, prefix = "") {
   const get = (name: string) => formData.get(`${prefix}${name}`)?.toString() ?? "";
-  return vehicleSchema.safeParse({ brand: get("brand"), model: get("model"), plate: get("plate"), year: get("year"), color: get("color"), nickname: get("nickname") });
+  return vehicleSchema.safeParse({
+    brand: get("brand"),
+    model: get("model"),
+    vehicleType: get("vehicleType"),
+    plate: get("plate"),
+    year: get("year"),
+    color: get("color"),
+    nickname: get("nickname"),
+  });
 }
 
 /** Erros do Zod por nome de campo (com o prefixo do formulário). */

@@ -6,6 +6,7 @@ import { formatPlate } from "@/lib/plate";
 import { Page, PageHeader } from "@/components/ui";
 import { ProfileForm } from "@/components/ProfileForm";
 import { ChangePasswordForm } from "@/components/ChangePasswordForm";
+import { GoogleSignIn } from "@/components/GoogleSignIn";
 import { SignOutButton } from "@/components/SignOutButton";
 import { CarIcon, ChevronRightIcon, PlusIcon, UserIcon, CalendarIcon } from "@/components/icons";
 
@@ -14,7 +15,7 @@ export const metadata = { title: "Minha conta" };
 export default async function MinhaContaPage() {
   const user = await requireClient();
   const [profile, vehicles] = await Promise.all([
-    prisma.user.findUnique({ where: { id: user.id }, select: { name: true, email: true, phone: true } }),
+    prisma.user.findUnique({ where: { id: user.id }, select: { name: true, email: true, phone: true, passwordHash: true, googleSubject: true } }),
     listVehicles(user.id),
   ]);
   // Nome, e-mail e celular vêm do banco (a sessão só guarda o que existia no login).
@@ -71,10 +72,21 @@ export default async function MinhaContaPage() {
         <h2 id="seguranca" className="font-display text-2xl font-extrabold uppercase italic text-fg">
           Segurança
         </h2>
-        <p className="mt-1 text-sm text-fg-muted">Para sua proteção, trocar a senha pede a senha atual e encerra as sessões abertas.</p>
-        <div className="mt-4 max-w-md">
-          <ChangePasswordForm />
-        </div>
+        {profile.passwordHash ? (
+          <>
+            <p className="mt-1 text-sm text-fg-muted">Para sua proteção, trocar a senha pede a senha atual e encerra as sessões abertas.</p>
+            <div className="mt-4 max-w-md">
+              <ChangePasswordForm />
+            </div>
+            {!profile.googleSubject && (
+              <div className="mt-6 max-w-md">
+                <GoogleSignIn callbackUrl="/minha-conta" label="Vincular conta Google" />
+              </div>
+            )}
+          </>
+        ) : (
+          <p className="mt-1 text-sm text-fg-muted">Você entra nesta conta com o Google.</p>
+        )}
       </section>
 
       <div className="mt-6 flex flex-col gap-3 sm:flex-row">

@@ -7,6 +7,7 @@ import { BLOCKING_STATUSES, STATUS_LABELS } from "./constants";
 import { notesSchema, statusUpdateSchema } from "./validation";
 import { canClientCancel, getBookingPolicy, limitReachedMessage } from "./policy";
 import { recordAuditTx } from "./audit-log";
+import { loadPriceByTypeEnabled, loadPriceTables, priceFor } from "./pricing-data";
 import { formatDateTimeBR } from "./format";
 import type { Prisma } from "@prisma/client";
 import type { AppointmentStatus } from "./types";
@@ -18,9 +19,14 @@ export class BookingConflictError extends Error {}
 export class BookingValidationError extends Error {}
 /** Cliente já está no limite de reservas futuras ativas. */
 export class BookingLimitError extends BookingValidationError {}
+/** O valor calculado agora não é o que a cliente viu na revisão (a tabela de preços mudou). Nada foi gravado. */
+export class BookingPriceChangedError extends BookingValidationError {}
 
 const SLOT_TAKEN_MESSAGE = "Esse horário não está mais disponível. Escolha outro horário.";
 const VEHICLE_REQUIRED_MESSAGE = "Escolha ou cadastre o veículo do agendamento.";
+const VEHICLE_TYPE_REQUIRED_MESSAGE = "Informe o tipo do seu veículo para continuar o agendamento.";
+const PRICE_CHANGED_MESSAGE = "O valor deste serviço mudou. Revise o agendamento e confirme novamente.";
+const SERVICE_UNAVAILABLE_MESSAGE = "Esse serviço não está mais disponível. Escolha outro serviço.";
 
 async function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -114,7 +120,15 @@ function toSyncPayload(appointment: {
  * Lança BookingValidationError / BookingConflictError / CalendarUnavailableError
  * com mensagens prontas para exibir.
  */
-export async function createBooking(params: { clientId: string; serviceId: string; startAt: Date; vehicleId: string; notes?: string | null }) {
+export async function createBooking(params: {
+  clientId: string;
+  serviceId: string;
+  startAt: Date;
+  vehicleId: string;
+  notes?: string | null;
+  /** Valor que a cliente viu na revisão. Se o preço calculado agora for outro, a reserva é recusada (nada é gravado). */
+  expectedPriceCents?: number;
+}) {
   const { clientId, serviceId, startAt } = params;
 
   if (!(startAt instanceof Date) || Number.isNaN(startAt.getTime())) {
@@ -176,19 +190,31 @@ export async function createBooking(params: { clientId: string; serviceId: strin
     const vehicle = await tx.vehicle.findFirst({ where: { id: params.vehicleId, userId: clientId } });
     if (!vehicle) throw new BookingValidationError(VEHICLE_REQUIRED_MESSAGE);
 
+    // Preço decidido AQUI, no servidor, sob o lock: o valor do formulário nunca é usado para cobrar. A chave, a tabela e
+    // o preço padrão são relidos do banco (sem cache), então uma mudança do administrador vale na hora.
+    const currentService = await tx.service.findUnique({ where: { id: service.id }, select: { priceCents: true } });
+    if (!currentService) throw new BookingValidationError(SERVICE_UNAVAILABLE_MESSAGE);
+    const [priceEnabled, priceTables] = await Promise.all([loadPriceByTypeEnabled(tx), loadPriceTables([service.id], tx)]);
+    const price = priceFor({ id: service.id, priceCents: currentService.priceCents }, vehicle.vehicleType, { enabled: priceEnabled, tables: priceTables });
+    if (price.status === "needs-type") throw new BookingValidationError(VEHICLE_TYPE_REQUIRED_MESSAGE);
+    if (params.expectedPriceCents !== undefined && params.expectedPriceCents !== price.cents) {
+      throw new BookingPriceChangedError(PRICE_CHANGED_MESSAGE);
+    }
+
     const created = await tx.appointment.create({
       data: {
         clientId,
         serviceId: service.id,
-        // Snapshot: alterações futuras no serviço não afetam reservas já criadas.
+        // Snapshot: alterações futuras no serviço (ou na tabela de preços) não afetam reservas já criadas.
         serviceName: service.name,
-        priceCents: service.priceCents,
+        priceCents: price.cents,
         durationMinutes: service.durationMinutes,
         // Snapshot do veículo: editar ou apagar o veículo depois não altera o histórico.
         vehicleId: vehicle.id,
         vehicleBrandSnapshot: vehicle.brand,
         vehicleModelSnapshot: vehicle.model,
         vehiclePlateSnapshot: vehicle.plate,
+        vehicleTypeSnapshot: vehicle.vehicleType,
         notes,
         startAt,
         endAt,

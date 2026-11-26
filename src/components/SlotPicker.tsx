@@ -7,7 +7,7 @@ import { checkSlotStillAvailableAction, findNextAvailableDayAction, getAvailable
 import { getRescheduleSlotsAction, rescheduleBookingAction } from "@/app/meus-agendamentos/[id]/reagendar/actions";
 import { TIMEZONE } from "@/lib/constants";
 import { createSlotRequestTracker } from "@/lib/slot-request-tracker";
-import { veiculoUrl } from "@/lib/booking-urls";
+import { revisarUrl, veiculoUrl } from "@/lib/booking-urls";
 import { getMonthGrid, shiftMonthKey } from "@/lib/calendar-grid";
 import { ChevronRightIcon } from "@/components/icons";
 
@@ -44,6 +44,7 @@ const BACKGROUND_REFRESH_MS = 45_000;
  */
 export function SlotPicker({
   serviceId,
+  vehicleId,
   calendar,
   mode = "book",
   appointmentId,
@@ -55,6 +56,8 @@ export function SlotPicker({
   initialDay?: string;
   initialTime?: string;
   serviceId: string;
+  /** Só no agendamento novo: o veículo já escolhido na etapa anterior (revalidado no servidor na revisão e na reserva). */
+  vehicleId?: string;
   calendar: CalendarRange;
   mode?: "book" | "reschedule";
   /** Só no reagendamento: a reserva que está sendo movida (a posse é revalidada no servidor). */
@@ -210,14 +213,15 @@ export function SlotPicker({
         return;
       }
       startTransition(() => {
-        router.push(veiculoUrl(serviceId, selectedSlot));
+        // Sem veículo escolhido (não deveria acontecer) volta para a etapa do veículo, que é quem decide o preço.
+        router.push(vehicleId ? revisarUrl(serviceId, selectedSlot, vehicleId) : veiculoUrl(serviceId));
       });
     } catch {
       setNotice("Não foi possível conferir o horário. Verifique sua conexão e tente novamente.");
     } finally {
       setChecking(false);
     }
-  }, [appointmentId, load, mode, router, selectedDay, selectedSlot, serviceId]);
+  }, [appointmentId, load, mode, router, selectedDay, selectedSlot, serviceId, vehicleId]);
 
   const goToNextAvailableDay = useCallback(async () => {
     setSearching(true);
